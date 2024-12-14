@@ -47,8 +47,8 @@ from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
 from vllm.sequence import (EmbeddingSequenceGroupOutput, ExecuteModelRequest,
-                           ParallelSampleSequenceGroup, Sequence,
-                           SequenceGroup, SequenceGroupBase,
+                           ParallelSampleSequenceGroup, RequestExecuteTiming,
+                           Sequence, SequenceGroup, SequenceGroupBase,
                            SequenceGroupMetadata, SequenceGroupOutput,
                            SequenceStatus)
 from vllm.tracing import (SpanAttributes, SpanKind, extract_trace_context,
@@ -427,7 +427,7 @@ class LLMEngine:
                 # We need to set PROMETHEUS_MULTIPROC_DIR environment variable
                 # before prometheus_client is imported.
                 # See https://prometheus.github.io/client_python/multiprocess/
-                from vllm.engine.metrics import (LoggingStatLogger,
+                from vllm.engine.metrics import (CSVLogger, LoggingStatLogger,
                                                  PrometheusStatLogger)
 
                 self.stat_loggers = {
@@ -440,6 +440,8 @@ class LLMEngine:
                         labels=dict(
                             model_name=self.model_config.served_model_name),
                         max_model_len=self.model_config.max_model_len),
+                    "csv":
+                    CSVLogger(filename="request_timing.csv"),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
@@ -1168,6 +1170,12 @@ class LLMEngine:
                         else:
                             seq_group.metrics.model_execute_time = (
                                 o.model_execute_time)
+                        if o.sampler_output_execute_timing:
+                            if seq_group.metrics.request_execute_timing is None:
+                                seq_group.metrics.request_execute_timing \
+                                        = RequestExecuteTiming([])
+                            seq_group.metrics.request_execute_timing.append(
+                                o.sampler_output_execute_timing)
 
             if self.model_config.task == "embedding":
                 self._process_sequence_group_outputs(seq_group, output)
@@ -1682,6 +1690,7 @@ class LLMEngine:
         time_in_queue_requests: List[float] = []
         model_forward_time_requests: List[float] = []
         model_execute_time_requests: List[float] = []
+        request_execute_timing_requests: List[RequestExecuteTiming] = []
         #   Metadata
         num_prompt_tokens_requests: List[int] = []
         num_generation_tokens_requests: List[int] = []
@@ -1798,6 +1807,9 @@ class LLMEngine:
                     if seq_group.metrics.model_execute_time is not None:
                         model_execute_time_requests.append(
                             seq_group.metrics.model_execute_time * 1000)
+                    if seq_group.metrics.request_execute_timing is not None:
+                        request_execute_timing_requests.append(
+                            seq_group.metrics.request_execute_timing)
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -1869,6 +1881,7 @@ class LLMEngine:
             time_in_queue_requests=time_in_queue_requests,
             model_forward_time_requests=model_forward_time_requests,
             model_execute_time_requests=model_execute_time_requests,
+            request_execute_timing_requests=request_execute_timing_requests,
             #   Metadata
             num_prompt_tokens_requests=num_prompt_tokens_requests,
             num_generation_tokens_requests=num_generation_tokens_requests,
