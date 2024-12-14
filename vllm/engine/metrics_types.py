@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Protocol
 
 from vllm.config import VllmConfig
+from vllm.sequence import BatchExecuteTiming
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 
@@ -37,17 +38,23 @@ class Stats:
     #   Prefix caching block hit rate
     cpu_prefix_cache_hit_rate: float
     gpu_prefix_cache_hit_rate: float
+    scheduler_time: float
+    process_model_outputs_time: float
 
     # Iteration stats (should have _iter suffix)
     num_prompt_tokens_iter: int
     num_generation_tokens_iter: int
     num_tokens_iter: int
+    batch_size_prompt_iter: int
+    batch_size_generation_iter: int
     time_to_first_tokens_iter: List[float]
     time_per_output_tokens_iter: List[float]
     num_preemption_iter: int
+    batch_execute_timing_iter: Optional[BatchExecuteTiming]
 
     # Request stats (should have _requests suffix)
     #   Latency
+    request_id_requests: List[str]
     time_e2e_requests: List[float]
     time_queue_requests: List[float]
     time_inference_requests: List[float]

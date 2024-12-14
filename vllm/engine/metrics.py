@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-
+import os
 import time
+from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
 from typing import Dict, List, Optional, Type, Union, cast
 
 import numpy as np
+import pandas as pd
 import prometheus_client
 
 from vllm.config import VllmConfig
@@ -679,3 +681,103 @@ class RayPrometheusStatLogger(PrometheusStatLogger):
 
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         return None
+
+
+class CSVLogger(StatLoggerBase):
+    """
+    Logs to CSV. Writes are incremental to avoid blocking.
+    """
+
+    def __init__(self,
+                 filename: str,
+                 disable_periodic_persist_to_disk: bool = False,
+                 persist_to_disk_every: int = 100) -> None:
+        """
+        `disable_periodic_persist_to_disk`: Set this to false to disable
+        periodic log flush that blocks the vLLM operation, to get accurate
+        timings measurements.
+        """
+        self.filename = filename
+        self.disable_periodic_persist_to_disk = disable_periodic_persist_to_disk
+        self.persist_to_disk_every = persist_to_disk_every
+
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        if os.path.exists(filename):
+            os.remove(filename)
+        self.iter = 0
+
+        # New data pending to be persisted to disk. Flushed on each disk write
+        self.csv_buf: List[Dict] = []
+
+    def increment_counter_and_maybe_persist_to_disk(self):
+        self.iter += 1
+        if not self.disable_periodic_persist_to_disk \
+                and self.iter % self.persist_to_disk_every == 0:
+            self.persist_to_disk()
+
+    def persist_to_disk(self):
+        file_exists = os.path.isfile(self.filename)
+
+        # Append mode, write header only if file does not exist
+        pd.DataFrame(self.csv_buf).to_csv(self.filename,
+                                          mode='a',
+                                          header=not file_exists,
+                                          index=False)
+        logger.info("CSVLogger persisting %d entries to disk",
+                    len(self.csv_buf))
+        self.csv_buf.clear()
+
+    @abstractmethod
+    def log(self, stats: Stats) -> None:
+        raise NotImplementedError
+
+    def info(self, type: str, obj: SupportsMetricsInfo) -> None:
+        raise NotImplementedError
+
+
+class PerfMetricCSVLogger(CSVLogger):
+    """
+    Each row is the engine metrics at time of logging. Each log() adds one row.
+    """
+
+    # For now, we log all tokens of primitive types (int, float).
+    FIELDS = [
+        'now',
+        'num_running_sys',
+        'num_waiting_sys',
+        'num_swapped_sys',
+        'gpu_cache_usage_sys',
+        'cpu_cache_usage_sys',
+        'cpu_prefix_cache_hit_rate',
+        'gpu_prefix_cache_hit_rate',
+        'scheduler_time',
+        'process_model_outputs_time',
+        'num_prompt_tokens_iter',
+        'num_generation_tokens_iter',
+        'num_tokens_iter',
+        'batch_size_prompt_iter',
+        'batch_size_generation_iter',
+        'time_to_first_tokens_iter',
+        'time_per_output_tokens_iter',
+        'num_preemption_iter',
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Cumulative number of completed requests
+        self.num_completed_reqs = 0
+
+    def log(self, stats: Stats) -> None:
+        perf_dict = {field: getattr(stats, field) for field in self.FIELDS}
+
+        # Cumulative number of finished requests
+        self.num_completed_reqs += len(stats.request_id_requests)
+        perf_dict['num_completed_reqs'] = self.num_completed_reqs
+
+        # Request timings
+        if stats.batch_execute_timing_iter:
+            perf_dict |= {**stats.batch_execute_timing_iter.to_dict()}
+
+        self.csv_buf.append(perf_dict)
+        self.increment_counter_and_maybe_persist_to_disk()

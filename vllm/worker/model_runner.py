@@ -1995,7 +1995,9 @@ class CUDAGraphRunner(nn.Module):
 
         if intermediate_tensors is not None:
             for key in intermediate_tensors.tensors:
-                if key != "model_execute_time" and key != "model_forward_time":
+                if key != "model_execute_time" \
+                        and key != "model_forward_time" \
+                        and not key.startswith('stage_execute_timestamp'):
                     self.input_buffers[key].copy_(intermediate_tensors[key],
                                                   non_blocking=True)
         if self._is_encoder_decoder_model:

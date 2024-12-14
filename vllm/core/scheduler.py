@@ -151,6 +151,8 @@ class SchedulerOutputs:
     # The number of requests in the running queue
     running_queue_size: int
     preempted: int
+    scheduler_time: float = 0.0
+    process_model_outputs_time: float = 0.0
 
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
@@ -1435,6 +1437,7 @@ class Scheduler:
                     seq_group.metrics.scheduler_time += scheduler_time
                 else:
                     seq_group.metrics.scheduler_time = scheduler_time
+        scheduler_outputs.scheduler_time = scheduler_time
 
         # Move to next cache (if exists)
         self.cache_id = self.next_cache_id

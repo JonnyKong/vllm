@@ -395,7 +395,11 @@ class _AsyncLLMEngine(LLMEngine):
                     scheduler_outputs.scheduled_seq_groups)
 
             if not allow_async_output_proc:
+                now = time.perf_counter()
                 self._process_model_outputs(ctx=ctx)
+                if scheduler_outputs:
+                    scheduler_outputs.process_model_outputs_time \
+                            = time.perf_counter() - now
 
                 # Log stats.
                 self.do_log_stats(scheduler_outputs, outputs)
@@ -412,6 +416,9 @@ class _AsyncLLMEngine(LLMEngine):
             if len(ctx.output_queue) > 0:
                 self._process_model_outputs(ctx=ctx)
             assert len(ctx.output_queue) == 0
+
+        if self.freq_modulator:
+            self.freq_modulator.step()
 
         return ctx.request_outputs
 

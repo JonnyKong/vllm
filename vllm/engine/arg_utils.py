@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "all"]
+ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "power", "all"]
 
 DEVICE_OPTIONS = [
     "auto",
@@ -202,6 +202,9 @@ class EngineArgs:
     model_impl: str = "auto"
 
     calculate_kv_scales: Optional[bool] = None
+
+    log_dir: str = "./logs"
+    enable_freq_mod: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -984,6 +987,12 @@ class EngineArgs:
             'be loaded from the model checkpoint if available. '
             'Otherwise, the scales will default to 1.0.')
 
+        parser.add_argument("--log-dir", default='./logs')
+
+        parser.add_argument('--enable-freq-mod',
+                            action='store_true',
+                            default=EngineArgs.enable_freq_mod)
+
         return parser
 
     @classmethod
@@ -1271,6 +1280,8 @@ class EngineArgs:
             or "all" in detailed_trace_modules,
             collect_model_execute_time="worker" in detailed_trace_modules
             or "all" in detailed_trace_modules,
+            collect_power_usage="power" in detailed_trace_modules
+            or "all" in detailed_trace_modules,
         )
 
         config = VllmConfig(
@@ -1287,6 +1298,8 @@ class EngineArgs:
             prompt_adapter_config=prompt_adapter_config,
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
+            log_dir=self.log_dir,
+            enable_freq_mod=self.enable_freq_mod,
         )
 
         if envs.VLLM_USE_V1:

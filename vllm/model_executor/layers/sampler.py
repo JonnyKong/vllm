@@ -17,7 +17,7 @@ from vllm.model_executor.sampling_metadata import (SamplingMetadata,
                                                    SamplingTensors,
                                                    SequenceGroupToSample)
 from vllm.sampling_params import SamplingType
-from vllm.sequence import (VLLM_INVALID_TOKEN_ID,
+from vllm.sequence import (VLLM_INVALID_TOKEN_ID, BatchExecuteTiming,
                            CompletionSequenceGroupOutput, Logprob,
                            PromptLogprobs, SampleLogprobs, SequenceOutput)
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
@@ -127,6 +127,9 @@ class SamplerOutput(
     # Time taken in the model execute function. This will include model forward,
     # block/sync across workers, cpu-gpu sync time and sampling time.
     model_execute_time: Optional[float] = None
+
+    # Absolute execution timestamps
+    batch_execute_timing: Optional[BatchExecuteTiming] = None
 
     def __getitem__(self, idx: int) -> CompletionSequenceGroupOutput:
         return self.outputs[idx]

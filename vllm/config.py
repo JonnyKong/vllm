@@ -2591,6 +2591,8 @@ class ObservabilityConfig:
     # If set, collects the model execute time for the request.
     collect_model_execute_time: bool = False
 
+    collect_power_usage: bool = False
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,
@@ -3061,6 +3063,8 @@ class VllmConfig:
     additional_config: SupportsHash = field(default=None,
                                             init=True)  # type: ignore
     instance_id: str = ""
+    log_dir: Optional[str] = None
+    enable_freq_mod: bool = False
 
     def compute_hash(self) -> str:
         """

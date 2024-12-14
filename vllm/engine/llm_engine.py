@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import copy
+import multiprocessing
+import os
 import time
 from collections import Counter as collectionsCounter
 from collections import deque
@@ -43,10 +45,13 @@ from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
+from vllm.platforms.nvml_freq_modulator import NvmlFreqModulator
+from vllm.platforms.nvml_power_monitor import start_nvml_monitor
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
-from vllm.sequence import (ExecuteModelRequest, ParallelSampleSequenceGroup,
+from vllm.sequence import (BatchExecuteTiming, ExecuteModelRequest,
+                           ParallelSampleSequenceGroup,
                            PoolingSequenceGroupOutput, Sequence, SequenceGroup,
                            SequenceGroupBase, SequenceGroupMetadata,
                            SequenceGroupOutput, SequenceStatus)
@@ -365,6 +370,7 @@ class LLMEngine:
                 # before prometheus_client is imported.
                 # See https://prometheus.github.io/client_python/multiprocess/
                 from vllm.engine.metrics import (LoggingStatLogger,
+                                                 PerfMetricCSVLogger,
                                                  PrometheusStatLogger)
 
                 self.stat_loggers = {
@@ -378,9 +384,30 @@ class LLMEngine:
                         labels=dict(
                             model_name=self.model_config.served_model_name),
                         vllm_config=vllm_config),
+                    "perf_metric_csv":
+                    PerfMetricCSVLogger(
+                        filename=
+                        f"{vllm_config.log_dir}/perf_metric_{os.getpid()}.csv"
+                    ),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
+
+        self.power_monitor_process: Optional[multiprocessing.Process] = None
+        if self.observability_config.collect_power_usage:
+            self.power_monitor_process = multiprocessing.Process(
+                target=start_nvml_monitor,
+                kwargs={
+                    'interval': 0.01,
+                    'csv_filename': f"{vllm_config.log_dir}/power_log.csv",
+                },
+                daemon=True)
+            self.power_monitor_process.start()
+
+        self.freq_modulator: Optional[NvmlFreqModulator] = None
+        if vllm_config.enable_freq_mod:
+            self.freq_modulator = NvmlFreqModulator.create_from_config(
+                vllm_config, self)
 
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:
@@ -501,6 +528,9 @@ class LLMEngine:
         # Use getattr since __init__ can fail before the field is set
         if model_executor := getattr(self, "model_executor", None):
             model_executor.shutdown()
+        if self.power_monitor_process:
+            self.power_monitor_process.kill()
+            self.power_monitor_process.join()
 
     def get_tokenizer_group(
         self,
@@ -1432,7 +1462,11 @@ class LLMEngine:
 
             # Check if need to run the usual non-async path
             if not allow_async_output_proc:
+                now = time.perf_counter()
                 self._process_model_outputs(ctx=ctx)
+                if scheduler_outputs:
+                    scheduler_outputs.process_model_outputs_time \
+                            = time.perf_counter() - now
 
                 # Log stats.
                 self.do_log_stats(scheduler_outputs, outputs)
@@ -1456,6 +1490,9 @@ class LLMEngine:
             # queued control plane messages, such as add/remove lora adapters.
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
+
+        if self.freq_modulator:
+            self.freq_modulator.step()
 
         return ctx.request_outputs
 
@@ -1562,7 +1599,9 @@ class LLMEngine:
             skip: Optional, indices of sequences that were preempted. These
                 sequences will be ignored.
         """
-        now = time.time()
+        # Use perf_counter() instead of time() so time is comparable with time
+        # logged in worker_base.py
+        now = time.perf_counter()
 
         # System State
         #   Scheduler State
@@ -1572,6 +1611,11 @@ class LLMEngine:
             len(scheduler.swapped) for scheduler in self.scheduler)
         num_waiting_sys = sum(
             len(scheduler.waiting) for scheduler in self.scheduler)
+        scheduler_time = (scheduler_outputs.scheduler_time
+                          if scheduler_outputs else 0.0)
+        process_model_outputs_time = (
+            scheduler_outputs.process_model_outputs_time
+            if scheduler_outputs else 0.0)
 
         # KV Cache Usage in %
         num_total_gpu = self.cache_config.num_gpu_blocks
@@ -1601,13 +1645,17 @@ class LLMEngine:
         num_prompt_tokens_iter = 0
         num_generation_tokens_iter = 0
         num_tokens_iter = 0
+        batch_size_prompt_iter = 0
+        batch_size_generation_iter = 0
         time_to_first_tokens_iter: List[float] = []
         time_per_output_tokens_iter: List[float] = []
         num_preemption_iter = (0 if scheduler_outputs is None else
                                scheduler_outputs.preempted)
+        batch_execute_timing_iter: Optional[BatchExecuteTiming] = None
 
         # Request stats
         #   Latency
+        request_id_requests: List[str] = []
         time_e2e_requests: List[float] = []
         time_queue_requests: List[float] = []
         time_inference_requests: List[float] = []
@@ -1688,6 +1736,7 @@ class LLMEngine:
                         # One generation token per finished prefill.
                         num_generation_tokens_from_prefill_groups += (
                             seq_group.num_seqs())
+                    batch_size_prompt_iter += 1
                 else:
                     # TPOTs.
                     latency = seq_group.get_last_token_latency()
@@ -1701,6 +1750,7 @@ class LLMEngine:
                     else:
                         actual_num_batched_tokens +=\
                             seq_group.state.current_step - 1
+                    batch_size_generation_iter += 1
 
                 # Because of chunked prefill, we can have a single sequence
                 # group that does multiple prompt_runs. To prevent logging
@@ -1708,6 +1758,7 @@ class LLMEngine:
                 # on logging request level information for finished requests,
                 # which can only happen once.
                 if seq_group.is_finished():
+                    request_id_requests.append(seq_group.request_id)
                     # Latency timings
                     time_e2e_requests.append(now -
                                              seq_group.metrics.arrival_time)
@@ -1770,6 +1821,10 @@ class LLMEngine:
         else:
             spec_decode_metrics = None
 
+        if model_output and model_output[0].batch_execute_timing:
+            # Timings for all request in a batch are same, only use first one
+            batch_execute_timing_iter = model_output[0].batch_execute_timing
+
         return Stats(
             now=now,
             # System stats
@@ -1783,18 +1838,24 @@ class LLMEngine:
             #   Prefix Cache Hit Rate
             cpu_prefix_cache_hit_rate=cpu_prefix_cache_hit_rate,
             gpu_prefix_cache_hit_rate=gpu_prefix_cache_hit_rate,
+            scheduler_time=scheduler_time,
+            process_model_outputs_time=process_model_outputs_time,
 
             # Iteration stats
             num_prompt_tokens_iter=num_prompt_tokens_iter,
             num_generation_tokens_iter=num_generation_tokens_iter,
             num_tokens_iter=num_tokens_iter,
+            batch_size_prompt_iter=batch_size_prompt_iter,
+            batch_size_generation_iter=batch_size_generation_iter,
             time_to_first_tokens_iter=time_to_first_tokens_iter,
             time_per_output_tokens_iter=time_per_output_tokens_iter,
             spec_decode_metrics=spec_decode_metrics,
             num_preemption_iter=num_preemption_iter,
+            batch_execute_timing_iter=batch_execute_timing_iter,
 
             # Request stats
             #   Latency
+            request_id_requests=request_id_requests,
             time_e2e_requests=time_e2e_requests,
             time_queue_requests=time_queue_requests,
             time_inference_requests=time_inference_requests,

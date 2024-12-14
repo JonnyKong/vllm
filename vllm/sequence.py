@@ -95,6 +95,33 @@ class SequenceStage(enum.Enum):
 
 
 @dataclass
+class TimeRange:
+    start: float
+    start_recv: float
+    start_inf: float
+    end: float
+
+
+@dataclass
+class BatchExecuteTiming:
+    """
+    Execute timing for a token (SamplerOutput).
+    """
+    time_ranges: List[TimeRange]
+
+    def to_dict(self):
+        ret: Dict[str, float] = {}
+        for i, r in enumerate(self.time_ranges):
+            ret |= {
+                f'pp_rank_{i}_start': r.start,
+                f'pp_rank_{i}_start_recv': r.start_recv,
+                f'pp_rank_{i}_start_inf': r.start_inf,
+                f'pp_rank_{i}_end': r.end,
+            }
+        return ret
+
+
+@dataclass
 class RequestMetrics:
     """Metrics associated with a request.
 
@@ -111,6 +138,8 @@ class RequestMetrics:
         model_execute_time: The time spent in the model execute function. This
                             will include model forward, block/sync across
                             workers, cpu-gpu sync time and sampling time.
+        stage_execute_times: Absolute start and end timestamps, for each
+                            output token, for each PP stage
     """
     arrival_time: float
     last_token_time: float
