@@ -11,7 +11,8 @@ from vllm.distributed import broadcast_tensor_dict, get_pp_group, get_tp_group
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.layers.sampler import SamplerOutput
-from vllm.sequence import ExecuteModelRequest, IntermediateTensors
+from vllm.sequence import (ExecuteModelRequest, IntermediateTensors,
+                           SamplerOutputExecuteTiming, TimeRange)
 from vllm.utils import (enable_trace_function_call_for_thread,
                         resolve_obj_by_qualname, update_environment_variables)
 from vllm.worker.model_runner_base import (BroadcastableModelInput,
@@ -350,6 +351,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             **kwargs,
         )
 
+        end_time = time.perf_counter()
         model_execute_time = time.perf_counter() - start_time
         if not get_pp_group().is_last_rank:
             # output is IntermediateTensors
@@ -358,15 +360,33 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     and self.observability_config.collect_model_execute_time):
                 output.tensors["model_execute_time"] = torch.tensor(
                     model_execute_time + orig_model_execute_time)
+                pp_rank = get_pp_group().rank
+                output.tensors[
+                    f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor(
+                        [start_time, end_time])
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
             return [None]
         if (self.observability_config is not None
                 and self.observability_config.collect_model_execute_time
                 and output is not None):
+            time_ranges: List[TimeRange] = []
+            for rank in get_pp_group().ranks:
+                # Collect rank 0 to N-2 from intermediate results
+                if rank != get_pp_group().rank:
+                    assert intermediate_tensors
+                    stage_execute_timestamp = intermediate_tensors.tensors.get(
+                        f"stage_execute_timestamp_rank{rank}",
+                        torch.tensor([0, 0])).tolist()
+                else:
+                    stage_execute_timestamp = [start_time, end_time]
+                time_range = TimeRange(*stage_execute_timestamp)
+                time_ranges.append(time_range)
             for o in output:
                 o.model_execute_time = (orig_model_execute_time +
                                         model_execute_time)
+                o.sampler_output_execute_timing = SamplerOutputExecuteTiming(
+                    time_ranges)
 
         # output is List[SamplerOutput]
         return output

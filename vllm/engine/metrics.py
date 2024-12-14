@@ -1,9 +1,11 @@
+import os
 import time
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
 from typing import Dict, List, Optional, Type, Union, cast
 
 import numpy as np
+import pandas as pd
 import prometheus_client
 
 from vllm.config import VllmConfig
@@ -719,3 +721,39 @@ class RayPrometheusStatLogger(PrometheusStatLogger):
 
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         return None
+
+
+class CSVLogger(StatLoggerBase):
+
+    def __init__(self, filename, persist_to_disk_every=100) -> None:
+        self.filename = filename
+        self.persist_to_disk_every = persist_to_disk_every
+
+        if os.path.exists(filename):
+            os.remove(filename)
+        self.iter = 0
+        self.stats_buf: List[Dict] = []
+
+    def persist_to_disk(self):
+        file_exists = os.path.isfile(self.filename)
+
+        # Append mode, write header only if file does not exist
+        pd.DataFrame(self.stats_buf).to_csv(self.filename,
+                                            mode='a',
+                                            header=not file_exists,
+                                            index=False)
+        self.stats_buf.clear()
+
+    def log(self, stats: Stats) -> None:
+        for request_timing in stats.request_execute_timing_requests:
+            for token_timing in request_timing.sampler_output_execute_timings:
+                self.stats_buf.append(token_timing.to_dict())
+
+        self.iter += 1
+        if self.iter % self.persist_to_disk_every == 0:
+            logger.info("CSVLogger persisting %d entries to disk",
+                        len(self.stats_buf))
+            self.persist_to_disk()
+
+    def info(self, type: str, obj: SupportsMetricsInfo) -> None:
+        raise NotImplementedError

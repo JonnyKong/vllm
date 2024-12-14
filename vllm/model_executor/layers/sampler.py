@@ -18,7 +18,8 @@ from vllm.model_executor.sampling_metadata import (SamplingMetadata,
 from vllm.sampling_params import SamplingType
 from vllm.sequence import (VLLM_INVALID_TOKEN_ID,
                            CompletionSequenceGroupOutput, Logprob,
-                           PromptLogprobs, SampleLogprobs, SequenceOutput)
+                           PromptLogprobs, SampleLogprobs,
+                           SamplerOutputExecuteTiming, SequenceOutput)
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 if envs.VLLM_USE_FLASHINFER_SAMPLER and find_spec("flashinfer"):
@@ -126,6 +127,9 @@ class SamplerOutput(
     # Time taken in the model execute function. This will include model forward,
     # block/sync across workers, cpu-gpu sync time and sampling time.
     model_execute_time: Optional[float] = None
+
+    # Absolute execution timestamps
+    sampler_output_execute_timing: Optional[SamplerOutputExecuteTiming] = None
 
     def __getitem__(self, idx: int) -> CompletionSequenceGroupOutput:
         return self.outputs[idx]

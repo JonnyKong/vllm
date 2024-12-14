@@ -94,6 +94,40 @@ class SequenceStage(enum.Enum):
 
 
 @dataclass
+class TimeRange:
+    start: float
+    end: float
+
+
+@dataclass
+class SamplerOutputExecuteTiming:
+    """
+    Execute timing for a token (SamplerOutput).
+    """
+    time_ranges: List[TimeRange]
+
+    def to_dict(self):
+        return ({
+            f'start_{i}': self.time_ranges[i].start
+            for i in range(len(self.time_ranges))
+        } | {
+            f'end_{i}': self.time_ranges[i].end
+            for i in range(len(self.time_ranges))
+        })
+
+
+@dataclass
+class RequestExecuteTiming:
+    """
+    Execute timing for a request.
+    """
+    sampler_output_execute_timings: List[SamplerOutputExecuteTiming]
+
+    def append(self, t: SamplerOutputExecuteTiming):
+        self.sampler_output_execute_timings.append(t)
+
+
+@dataclass
 class RequestMetrics:
     """Metrics associated with a request.
 
@@ -110,6 +144,8 @@ class RequestMetrics:
         model_execute_time: The time spent in the model execute function. This
                             will include model forward, block/sync across
                             workers, cpu-gpu sync time and sampling time.
+        stage_execute_times: Absolute start and end timestamps, for each
+                            output token, for each PP stage
     """
     arrival_time: float
     last_token_time: float
@@ -120,6 +156,7 @@ class RequestMetrics:
     scheduler_time: Optional[float] = None
     model_forward_time: Optional[float] = None
     model_execute_time: Optional[float] = None
+    request_execute_timing: Optional[RequestExecuteTiming] = None
 
 
 class SequenceDataDelta(
