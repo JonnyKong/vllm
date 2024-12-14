@@ -160,6 +160,12 @@ async def build_async_engine_client_from_engine_args(
     usage_context = UsageContext.OPENAI_API_SERVER
     vllm_config = engine_args.create_engine_config(usage_context=usage_context)
 
+    if engine_args.enable_circuit_breaker:
+        assert disable_frontend_multiprocessing, (
+            'enable_circuit_breaker only works with AsyncLLMEngine (but '
+            'not MQLLMEngine), which requires '
+            '--disable-frontend-multiprocessing')
+
     # V1 AsyncLLM.
     if envs.VLLM_USE_V1:
         if disable_frontend_multiprocessing:

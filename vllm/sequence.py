@@ -95,6 +95,35 @@ class SequenceStage(enum.Enum):
 
 
 @dataclass
+class TimeRange:
+    start: float
+    start_swap: float
+    start_recv: float
+    start_inf: float
+    end: float
+    idle: float
+
+
+@dataclass
+class BatchExecuteTiming:
+    """
+    Execute timing for a token (SamplerOutput).
+    """
+    time_ranges: list[TimeRange]
+
+    def to_dict(self):
+        ret: dict[str, float] = {}
+        for i, r in enumerate(self.time_ranges):
+            ret |= {
+                f'pp_rank_{i}_start': r.start,
+                f'pp_rank_{i}_start_recv': r.start_recv,
+                f'pp_rank_{i}_start_inf': r.start_inf,
+                f'pp_rank_{i}_end': r.end,
+            }
+        return ret
+
+
+@dataclass
 class RequestMetrics:
     """Metrics associated with a request.
 

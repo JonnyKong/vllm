@@ -18,7 +18,7 @@ from vllm.core.scheduler import SchedulerOutputs
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_timeout import asyncio_timeout
 from vllm.engine.llm_engine import LLMEngine, SchedulerOutputState
-from vllm.engine.metrics_types import StatLoggerBase
+from vllm.engine.metrics_types import StatLoggerBase, Stats
 from vllm.engine.protocol import EngineClient
 from vllm.executor.executor_base import ExecutorBase
 from vllm.inputs import PromptType
@@ -263,8 +263,15 @@ class RequestTracker:
 class _AsyncLLMEngine(LLMEngine):
     """Extension of LLMEngine to add async methods."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self,
+                 async_callback_before_logging: Optional[Callable] = None,
+                 *args,
+                 **kwargs):
         super().__init__(*args, **kwargs)
+
+        # Called after the finish of inference and before the logging
+        self.async_callback_before_logging: Optional[Callable] \
+                = async_callback_before_logging
 
     async def step_async(
         self, virtual_engine: int
@@ -367,6 +374,7 @@ class _AsyncLLMEngine(LLMEngine):
             for seq_group in seq_group_metadata_list:
                 seq_group.finish_step()
 
+        stats: Optional[Stats] = None
         if not self._has_remaining_steps(seq_group_metadata_list):
             # Clear the cache if we have finished all the steps
             if self.scheduler_config.is_multi_step:
@@ -395,10 +403,17 @@ class _AsyncLLMEngine(LLMEngine):
                     scheduler_outputs.scheduled_seq_groups)
 
             if not allow_async_output_proc:
+                now = time.perf_counter()
                 self._process_model_outputs(ctx=ctx)
+                if scheduler_outputs:
+                    scheduler_outputs.process_model_outputs_time \
+                            = time.perf_counter() - now
+
+                if self.async_callback_before_logging:
+                    await self.async_callback_before_logging()
 
                 # Log stats.
-                self.do_log_stats(scheduler_outputs, outputs)
+                stats = self.do_log_stats(scheduler_outputs, outputs)
 
                 # Tracing
                 self.do_tracing(scheduler_outputs)
@@ -412,6 +427,9 @@ class _AsyncLLMEngine(LLMEngine):
             if len(ctx.output_queue) > 0:
                 self._process_model_outputs(ctx=ctx)
             assert len(ctx.output_queue) == 0
+
+        if self.freq_modulator:
+            self.freq_modulator.step(stats)
 
         return ctx.request_outputs
 
@@ -603,7 +621,8 @@ class AsyncLLMEngine(EngineClient):
                 "VLLM_USE_V1=0 or 1 and report this issue on Github.")
 
         self.log_requests = log_requests
-        self.engine = self._engine_class(*args, **kwargs)
+        self.engine = self._engine_class(
+            self.add_new_requests_into_waiting_queue, *args, **kwargs)
 
         # This ensures quick processing of request outputs
         # so the append to asyncio queues is not delayed,
@@ -754,11 +773,7 @@ class AsyncLLMEngine(EngineClient):
             self._background_loop_unshielded = None
         self.background_loop = None
 
-    async def engine_step(self, virtual_engine: int) -> bool:
-        """Kick the engine to process the waiting requests.
-
-        Returns True if there are in-progress requests."""
-
+    async def add_new_requests_into_waiting_queue(self):
         new_requests, aborted_requests = (
             self._request_tracker.get_new_and_aborted_requests())
 
@@ -776,6 +791,13 @@ class AsyncLLMEngine(EngineClient):
 
         if aborted_requests:
             await self._engine_abort(aborted_requests)
+
+    async def engine_step(self, virtual_engine: int) -> bool:
+        """Kick the engine to process the waiting requests.
+
+        Returns True if there are in-progress requests."""
+
+        await self.add_new_requests_into_waiting_queue()
 
         request_outputs = await self.engine.step_async(virtual_engine)
 
@@ -955,6 +977,12 @@ class AsyncLLMEngine(EngineClient):
             prompt_adapter_request=prompt_adapter_request,
             priority=priority,
         )
+
+        if self.engine.circuit_breaker:
+            self.engine.circuit_breaker.step()
+            if self.engine.circuit_breaker.is_tripped:
+                logger.info("Circuit breaker abort req: %s", request_id)
+                await self.abort(request_id)
 
         return stream.generator()
 

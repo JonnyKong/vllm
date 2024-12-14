@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "all"]
+ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "power", "all"]
 
 DEVICE_OPTIONS = [
     "auto",
@@ -219,6 +219,13 @@ class EngineArgs:
     enable_reasoning: Optional[bool] = None
     reasoning_parser: Optional[str] = None
     use_tqdm_on_load: bool = True
+
+    log_dir: str = "./logs"
+    enable_freq_mod: bool = False
+    freq_mod_mode: Optional[str] = None
+    pretrained_rl_model_path: Optional[str] = None
+    enable_idle_time_injection: bool = False
+    enable_circuit_breaker: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -1096,6 +1103,29 @@ class EngineArgs:
             "using. This is used to parse the reasoning content into OpenAI "
             "API format. Required for ``--enable-reasoning``.")
 
+        parser.add_argument("--log-dir", default='./logs')
+
+        parser.add_argument('--enable-freq-mod',
+                            action='store_true',
+                            default=EngineArgs.enable_freq_mod)
+
+        parser.add_argument('--freq-mod-mode',
+                            type=str,
+                            choices=['rule', 'value-iter', 'q-learn', 'dqn'],
+                            default=EngineArgs.freq_mod_mode)
+
+        parser.add_argument('--pretrained-rl-model-path',
+                            type=str,
+                            default=EngineArgs.pretrained_rl_model_path)
+
+        parser.add_argument('--enable-idle-time-injection',
+                            action='store_true',
+                            default=EngineArgs.enable_idle_time_injection)
+
+        parser.add_argument('--enable-circuit-breaker',
+                            action='store_true',
+                            default=EngineArgs.enable_circuit_breaker)
+
         return parser
 
     @classmethod
@@ -1380,6 +1410,8 @@ class EngineArgs:
             or "all" in detailed_trace_modules,
             collect_model_execute_time="worker" in detailed_trace_modules
             or "all" in detailed_trace_modules,
+            collect_power_usage="power" in detailed_trace_modules
+            or "all" in detailed_trace_modules,
         )
 
         config = VllmConfig(
@@ -1397,6 +1429,12 @@ class EngineArgs:
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
             additional_config=self.additional_config,
+            log_dir=self.log_dir,
+            enable_freq_mod=self.enable_freq_mod,
+            freq_mod_mode=self.freq_mod_mode,
+            pretrained_rl_model_path=self.pretrained_rl_model_path,
+            enable_idle_time_injection=self.enable_idle_time_injection,
+            enable_circuit_breaker=self.enable_circuit_breaker,
         )
 
         return config
