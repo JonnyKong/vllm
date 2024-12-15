@@ -745,15 +745,29 @@ class CSVLogger(StatLoggerBase):
         self.stats_buf.clear()
 
     def log(self, stats: Stats) -> None:
-        for request_timing in stats.request_execute_timing_requests:
-            for token_timing in request_timing.sampler_output_execute_timings:
-                self.stats_buf.append(token_timing.to_dict())
+        for i in range(len(stats.request_execute_timing_requests)):
+            request_id = stats.request_id_requests[i]
+            request_timing = stats.request_execute_timing_requests[i]
 
-        self.iter += 1
-        if self.iter % self.persist_to_disk_every == 0:
-            logger.info("CSVLogger persisting %d entries to disk",
-                        len(self.stats_buf))
-            self.persist_to_disk()
+            for token_id, token_timing in enumerate(
+                    request_timing.sampler_output_execute_timings):
+                # TODO: how to get batch ID? Maybe move timing to from
+                # request-level to iter-level timing
+                self.stats_buf.append({
+                    'request_id': request_id,
+                    'token_id': token_id,
+                    **token_timing.to_dict()
+                })
+
+        if len(self.stats_buf) > 0:
+            # Only increment iter when there is data. Otherwise, if
+            # persist_to_disk() is called before any data is logged, the header
+            # will not be written to the CSV
+            self.iter += 1
+            if self.iter % self.persist_to_disk_every == 0:
+                logger.info("CSVLogger persisting %d entries to disk",
+                            len(self.stats_buf))
+                self.persist_to_disk()
 
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         raise NotImplementedError

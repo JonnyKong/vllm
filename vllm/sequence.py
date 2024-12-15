@@ -108,10 +108,10 @@ class SamplerOutputExecuteTiming:
 
     def to_dict(self):
         return ({
-            f'start_{i}': self.time_ranges[i].start
+            f'pp_rank_{i}_start': self.time_ranges[i].start
             for i in range(len(self.time_ranges))
         } | {
-            f'end_{i}': self.time_ranges[i].end
+            f'pp_rank_{i}_end': self.time_ranges[i].end
             for i in range(len(self.time_ranges))
         })
 

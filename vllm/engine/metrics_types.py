@@ -48,6 +48,7 @@ class Stats:
 
     # Request stats (should have _requests suffix)
     #   Latency
+    request_id_requests: List[str]
     time_e2e_requests: List[float]
     time_queue_requests: List[float]
     time_inference_requests: List[float]
