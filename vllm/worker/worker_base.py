@@ -342,6 +342,9 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 orig_model_execute_time = intermediate_tensors.tensors.get(
                     "model_execute_time", torch.tensor(0)).item()
 
+        # Time finished receiving intermediate tensors and start inference
+        start_inf_time = time.perf_counter()
+
         output = self.model_runner.execute_model(
             model_input=model_input,
             kv_caches=self.kv_cache[worker_input.virtual_engine]
@@ -369,7 +372,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 # Append timing of stage N-1
                 output.tensors[
                     f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor(
-                        [start_time, end_time])
+                        [start_time, start_inf_time, end_time])
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
             return [None]
@@ -384,7 +387,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     stage_execute_timestamp = intermediate_tensors.tensors[
                         f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
-                    stage_execute_timestamp = [start_time, end_time]
+                    stage_execute_timestamp = [start_time, start_inf_time, end_time]
                 time_range = TimeRange(*stage_execute_timestamp)
                 time_ranges.append(time_range)
             for o in output:
