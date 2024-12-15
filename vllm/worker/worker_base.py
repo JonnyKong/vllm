@@ -361,6 +361,12 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 output.tensors["model_execute_time"] = torch.tensor(
                     model_execute_time + orig_model_execute_time)
                 pp_rank = get_pp_group().rank
+                # Copy in timings of stages 0 to N-2
+                for r in range(pp_rank):
+                    assert intermediate_tensors
+                    k = f"stage_execute_timestamp_rank{r}"
+                    output.tensors[k] = intermediate_tensors[k]
+                # Append timing of stage N-1
                 output.tensors[
                     f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor(
                         [start_time, end_time])
@@ -375,9 +381,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 # Collect rank 0 to N-2 from intermediate results
                 if rank != get_pp_group().rank:
                     assert intermediate_tensors
-                    stage_execute_timestamp = intermediate_tensors.tensors.get(
-                        f"stage_execute_timestamp_rank{rank}",
-                        torch.tensor([0, 0])).tolist()
+                    stage_execute_timestamp = intermediate_tensors.tensors[
+                        f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
                     stage_execute_timestamp = [start_time, end_time]
                 time_range = TimeRange(*stage_execute_timestamp)
