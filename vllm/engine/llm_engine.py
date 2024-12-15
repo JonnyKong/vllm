@@ -1682,6 +1682,7 @@ class LLMEngine:
 
         # Request stats
         #   Latency
+        request_id_requests: List[str] = []
         time_e2e_requests: List[float] = []
         time_queue_requests: List[float] = []
         time_inference_requests: List[float] = []
@@ -1783,6 +1784,7 @@ class LLMEngine:
                 # on logging request level information for finished requests,
                 # which can only happen once.
                 if seq_group.is_finished():
+                    request_id_requests.append(seq_group.request_id)
                     # Latency timings
                     time_e2e_requests.append(now -
                                              seq_group.metrics.arrival_time)
@@ -1873,6 +1875,7 @@ class LLMEngine:
 
             # Request stats
             #   Latency
+            request_id_requests=request_id_requests,
             time_e2e_requests=time_e2e_requests,
             time_queue_requests=time_queue_requests,
             time_inference_requests=time_inference_requests,
