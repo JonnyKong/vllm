@@ -353,12 +353,17 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             **kwargs,
         )
 
-        end_time = time.perf_counter()
+        end_time: float = 0.0
+        collect_model_execute_time = (
+            self.observability_config is not None
+            and self.observability_config.collect_model_execute_time)
+        if collect_model_execute_time:
+            torch.cuda.synchronize()
+            end_time = time.perf_counter()
         model_execute_time = time.perf_counter() - start_time
         if not get_pp_group().is_last_rank:
             # output is IntermediateTensors
-            if (self.observability_config is not None
-                    and self.observability_config.collect_model_execute_time):
+            if collect_model_execute_time:
                 output.tensors["model_execute_time"] = torch.tensor(
                     model_execute_time + orig_model_execute_time)
                 pp_rank = get_pp_group().rank
@@ -374,9 +379,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
             return [None]
-        if (self.observability_config is not None
-                and self.observability_config.collect_model_execute_time
-                and output is not None):
+        if (collect_model_execute_time and output is not None):
             time_ranges: List[TimeRange] = []
             for rank in get_pp_group().ranks:
                 # Collect rank 0 to N-2 from intermediate results
@@ -385,7 +388,9 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     stage_execute_timestamp = intermediate_tensors.tensors[
                         f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
-                    stage_execute_timestamp = [start_time, start_inf_time, end_time]
+                    stage_execute_timestamp = [
+                        start_time, start_inf_time, end_time
+                    ]
                 time_range = TimeRange(*stage_execute_timestamp)
                 time_ranges.append(time_range)
             for o in output:
