@@ -108,7 +108,7 @@ class SamplerOutputExecuteTiming:
     time_ranges: List[TimeRange]
 
     def to_dict(self):
-        ret = {}
+        ret: Dict[str, float] = {}
         for i, r in enumerate(self.time_ranges):
             ret |= {
                 f'pp_rank_{i}_start': r.start,
