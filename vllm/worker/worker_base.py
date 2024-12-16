@@ -354,6 +354,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             # output is IntermediateTensors
             if (self.observability_config is not None
                     and self.observability_config.collect_model_execute_time):
+                logger.info(f'PP rank: {get_pp_group().rank}, model_execute_time: {model_execute_time}')
                 output.tensors["model_execute_time"] = torch.tensor(
                     model_execute_time + orig_model_execute_time)
             get_pp_group().send_tensor_dict(output.tensors,
@@ -362,6 +363,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         if (self.observability_config is not None
                 and self.observability_config.collect_model_execute_time
                 and output is not None):
+            logger.info(f'PP rank: {get_pp_group().rank}, model_execute_time: {model_execute_time}')
             for o in output:
                 o.model_execute_time = (orig_model_execute_time +
                                         model_execute_time)
