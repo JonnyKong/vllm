@@ -326,6 +326,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         num_steps = worker_input.num_steps
 
         self.execute_worker(worker_input)
+        start_recv_time = time.perf_counter()
 
         # If there is no input, we don't need to execute the model.
         if worker_input.num_seq_groups == 0:
@@ -377,8 +378,9 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     output.tensors[k] = intermediate_tensors[k]
                 # Append timing of stage N-1
                 output.tensors[
-                    f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor(
-                        [start_time, start_inf_time, end_time])
+                    f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor([
+                        start_time, start_recv_time, start_inf_time, end_time
+                    ])
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
             return [None]
@@ -392,7 +394,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                         f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
                     stage_execute_timestamp = [
-                        start_time, start_inf_time, end_time
+                        start_time, start_recv_time, start_inf_time, end_time
                     ]
                 time_range = TimeRange(*stage_execute_timestamp)
                 time_ranges.append(time_range)

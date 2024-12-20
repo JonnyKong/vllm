@@ -96,6 +96,7 @@ class SequenceStage(enum.Enum):
 @dataclass
 class TimeRange:
     start: float
+    start_recv: float
     start_inf: float
     end: float
 
@@ -112,6 +113,7 @@ class SamplerOutputExecuteTiming:
         for i, r in enumerate(self.time_ranges):
             ret |= {
                 f'pp_rank_{i}_start': r.start,
+                f'pp_rank_{i}_start_recv': r.start_inf,
                 f'pp_rank_{i}_start_inf': r.start_inf,
                 f'pp_rank_{i}_end': r.end,
             }
