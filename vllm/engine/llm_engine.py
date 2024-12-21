@@ -365,8 +365,10 @@ class LLMEngine:
                 # We need to set PROMETHEUS_MULTIPROC_DIR environment variable
                 # before prometheus_client is imported.
                 # See https://prometheus.github.io/client_python/multiprocess/
-                from vllm.engine.metrics import (CSVLogger, LoggingStatLogger,
-                                                 PrometheusStatLogger)
+                from vllm.engine.metrics import (LoggingStatLogger,
+                                                 PerfMetricCSVLogger,
+                                                 PrometheusStatLogger,
+                                                 RequestTimingCSVLogger)
 
                 self.stat_loggers = {
                     "logging":
@@ -379,8 +381,10 @@ class LLMEngine:
                         labels=dict(
                             model_name=self.model_config.served_model_name),
                         vllm_config=vllm_config),
-                    "csv":
-                    CSVLogger(filename="request_timing.csv"),
+                    "request_timing_csv":
+                    RequestTimingCSVLogger(filename="request_timing.csv"),
+                    "perf_metric_csv":
+                    PerfMetricCSVLogger(filename="perf_metric.csv"),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
@@ -1579,7 +1583,9 @@ class LLMEngine:
             skip: Optional, indices of sequences that were preempted. These
                 sequences will be ignored.
         """
-        now = time.time()
+        # Use perf_counter() instead of time() so time is comparable with time
+        # logged in worker_base.py
+        now = time.perf_counter()
 
         # System State
         #   Scheduler State

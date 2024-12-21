@@ -1,5 +1,6 @@
 import os
 import time
+from abc import abstractmethod
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
 from typing import Dict, List, Optional, Type, Union, cast
@@ -724,6 +725,9 @@ class RayPrometheusStatLogger(PrometheusStatLogger):
 
 
 class CSVLogger(StatLoggerBase):
+    """
+    Logs to CSV. Writes are incremental to avoid blocking.
+    """
 
     def __init__(self, filename, persist_to_disk_every=100) -> None:
         self.filename = filename
@@ -732,17 +736,39 @@ class CSVLogger(StatLoggerBase):
         if os.path.exists(filename):
             os.remove(filename)
         self.iter = 0
-        self.stats_buf: List[Dict] = []
+
+        # New data pending to be persisted to disk. Flushed on each disk write
+        self.csv_buf: List[Dict] = []
+
+    def increment_counter_and_maybe_persist_to_disk(self):
+        self.iter += 1
+        if self.iter % self.persist_to_disk_every == 0:
+            logger.info("CSVLogger persisting %d entries to disk",
+                        len(self.csv_buf))
+            self.persist_to_disk()
 
     def persist_to_disk(self):
         file_exists = os.path.isfile(self.filename)
 
         # Append mode, write header only if file does not exist
-        pd.DataFrame(self.stats_buf).to_csv(self.filename,
-                                            mode='a',
-                                            header=not file_exists,
-                                            index=False)
-        self.stats_buf.clear()
+        pd.DataFrame(self.csv_buf).to_csv(self.filename,
+                                          mode='a',
+                                          header=not file_exists,
+                                          index=False)
+        self.csv_buf.clear()
+
+    @abstractmethod
+    def log(self, stats: Stats) -> None:
+        raise NotImplementedError
+
+    def info(self, type: str, obj: SupportsMetricsInfo) -> None:
+        raise NotImplementedError
+
+
+class RequestTimingCSVLogger(CSVLogger):
+    """
+    Each row is one request. Each log() might log multiple requests.
+    """
 
     def log(self, stats: Stats) -> None:
         for i in range(len(stats.request_execute_timing_requests)):
@@ -753,21 +779,44 @@ class CSVLogger(StatLoggerBase):
                     request_timing.sampler_output_execute_timings):
                 # TODO: how to get batch ID? Maybe move timing to from
                 # request-level to iter-level timing
-                self.stats_buf.append({
+                self.csv_buf.append({
                     'request_id': request_id,
                     'token_id': token_id,
                     **token_timing.to_dict()
                 })
 
-        if len(self.stats_buf) > 0:
+        if len(self.csv_buf) > 0:
             # Only increment iter when there is data. Otherwise, if
             # persist_to_disk() is called before any data is logged, the header
             # will not be written to the CSV
-            self.iter += 1
-            if self.iter % self.persist_to_disk_every == 0:
-                logger.info("CSVLogger persisting %d entries to disk",
-                            len(self.stats_buf))
-                self.persist_to_disk()
+            self.increment_counter_and_maybe_persist_to_disk()
 
-    def info(self, type: str, obj: SupportsMetricsInfo) -> None:
-        raise NotImplementedError
+
+class PerfMetricCSVLogger(CSVLogger):
+    """
+    Each row is the engine metrics at time of logging. Each log() adds one row.
+    """
+
+    # For now, we log all tokens of primitive types (int, float).
+    FIELDS = [
+        'now',
+        'num_running_sys',
+        'num_waiting_sys',
+        'num_swapped_sys',
+        'gpu_cache_usage_sys',
+        'cpu_cache_usage_sys',
+        'cpu_prefix_cache_hit_rate',
+        'gpu_prefix_cache_hit_rate',
+        'num_prompt_tokens_iter',
+        'num_generation_tokens_iter',
+        'num_tokens_iter',
+        'time_to_first_tokens_iter',
+        'time_per_output_tokens_iter',
+        'num_preemption_iter',
+    ]
+
+    def log(self, stats: Stats) -> None:
+        self.csv_buf.append(
+            {field: getattr(stats, field)
+             for field in self.FIELDS})
+        self.increment_counter_and_maybe_persist_to_disk()
