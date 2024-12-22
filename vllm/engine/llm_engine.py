@@ -1652,6 +1652,8 @@ class LLMEngine:
             len(scheduler.swapped) for scheduler in self.scheduler)
         num_waiting_sys = sum(
             len(scheduler.waiting) for scheduler in self.scheduler)
+        scheduler_time = (scheduler_outputs.scheduler_time
+                          if scheduler_outputs else 0.0)
 
         # KV Cache Usage in %
         num_total_gpu = self.cache_config.num_gpu_blocks
@@ -1873,6 +1875,7 @@ class LLMEngine:
             #   Prefix Cache Hit Rate
             cpu_prefix_cache_hit_rate=cpu_prefix_cache_hit_rate,
             gpu_prefix_cache_hit_rate=gpu_prefix_cache_hit_rate,
+            scheduler_time=scheduler_time,
 
             # Iteration stats
             num_prompt_tokens_iter=num_prompt_tokens_iter,
