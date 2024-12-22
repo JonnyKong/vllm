@@ -810,6 +810,8 @@ class PerfMetricCSVLogger(CSVLogger):
         'num_prompt_tokens_iter',
         'num_generation_tokens_iter',
         'num_tokens_iter',
+        'batch_size_prompt_iter',
+        'batch_size_generation_iter',
         'time_to_first_tokens_iter',
         'time_per_output_tokens_iter',
         'num_preemption_iter',

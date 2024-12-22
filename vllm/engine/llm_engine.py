@@ -1624,6 +1624,8 @@ class LLMEngine:
         num_prompt_tokens_iter = 0
         num_generation_tokens_iter = 0
         num_tokens_iter = 0
+        batch_size_prompt_iter = 0
+        batch_size_generation_iter = 0
         time_to_first_tokens_iter: List[float] = []
         time_per_output_tokens_iter: List[float] = []
         num_preemption_iter = (0 if scheduler_outputs is None else
@@ -1713,6 +1715,7 @@ class LLMEngine:
                         # One generation token per finished prefill.
                         num_generation_tokens_from_prefill_groups += (
                             seq_group.num_seqs())
+                    batch_size_prompt_iter += 1
                 else:
                     # TPOTs.
                     latency = seq_group.get_last_token_latency()
@@ -1726,6 +1729,7 @@ class LLMEngine:
                     else:
                         actual_num_batched_tokens +=\
                             seq_group.state.current_step - 1
+                    batch_size_generation_iter += 1
 
                 # Because of chunked prefill, we can have a single sequence
                 # group that does multiple prompt_runs. To prevent logging
@@ -1817,6 +1821,8 @@ class LLMEngine:
             num_prompt_tokens_iter=num_prompt_tokens_iter,
             num_generation_tokens_iter=num_generation_tokens_iter,
             num_tokens_iter=num_tokens_iter,
+            batch_size_prompt_iter=batch_size_prompt_iter,
+            batch_size_generation_iter=batch_size_generation_iter,
             time_to_first_tokens_iter=time_to_first_tokens_iter,
             time_per_output_tokens_iter=time_per_output_tokens_iter,
             spec_decode_metrics=spec_decode_metrics,

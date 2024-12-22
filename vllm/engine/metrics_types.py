@@ -42,6 +42,8 @@ class Stats:
     num_prompt_tokens_iter: int
     num_generation_tokens_iter: int
     num_tokens_iter: int
+    batch_size_prompt_iter: int
+    batch_size_generation_iter: int
     time_to_first_tokens_iter: List[float]
     time_per_output_tokens_iter: List[float]
     num_preemption_iter: int
