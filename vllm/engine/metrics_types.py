@@ -37,6 +37,7 @@ class Stats:
     #   Prefix caching block hit rate
     cpu_prefix_cache_hit_rate: float
     gpu_prefix_cache_hit_rate: float
+    scheduler_time: float
 
     # Iteration stats (should have _iter suffix)
     num_prompt_tokens_iter: int

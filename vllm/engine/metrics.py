@@ -807,6 +807,7 @@ class PerfMetricCSVLogger(CSVLogger):
         'cpu_cache_usage_sys',
         'cpu_prefix_cache_hit_rate',
         'gpu_prefix_cache_hit_rate',
+        'scheduler_time',
         'num_prompt_tokens_iter',
         'num_generation_tokens_iter',
         'num_tokens_iter',
