@@ -150,6 +150,7 @@ class SchedulerOutputs:
     running_queue_size: int
     preempted: int
     scheduler_time: float = 0.0
+    process_model_outputs_time: float = 0.0
 
     def __post_init__(self):
         # Swap in and swap out should never happen at the same time.
