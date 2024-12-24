@@ -1453,7 +1453,10 @@ class LLMEngine:
 
             # Check if need to run the usual non-async path
             if not allow_async_output_proc:
+                now = time.perf_counter() 
                 self._process_model_outputs(ctx=ctx)
+                if scheduler_outputs:
+                    scheduler_outputs.process_model_outputs_time = time.perf_counter() - now
 
                 # Log stats.
                 self.do_log_stats(scheduler_outputs, outputs)
@@ -1596,6 +1599,8 @@ class LLMEngine:
         num_waiting_sys = sum(
             len(scheduler.waiting) for scheduler in self.scheduler)
         scheduler_time = (scheduler_outputs.scheduler_time
+                          if scheduler_outputs else 0.0)
+        process_model_outputs_time = (scheduler_outputs.process_model_outputs_time
                           if scheduler_outputs else 0.0)
 
         # KV Cache Usage in %
@@ -1819,6 +1824,7 @@ class LLMEngine:
             cpu_prefix_cache_hit_rate=cpu_prefix_cache_hit_rate,
             gpu_prefix_cache_hit_rate=gpu_prefix_cache_hit_rate,
             scheduler_time=scheduler_time,
+            process_model_outputs_time=process_model_outputs_time,
 
             # Iteration stats
             num_prompt_tokens_iter=num_prompt_tokens_iter,
