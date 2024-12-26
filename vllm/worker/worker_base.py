@@ -11,8 +11,8 @@ from vllm.distributed import broadcast_tensor_dict, get_pp_group, get_tp_group
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.model_executor.layers.sampler import SamplerOutput
-from vllm.sequence import (ExecuteModelRequest, IntermediateTensors,
-                           SamplerOutputExecuteTiming, TimeRange)
+from vllm.sequence import (BatchExecuteTiming, ExecuteModelRequest,
+                           IntermediateTensors, TimeRange)
 from vllm.utils import (enable_trace_function_call_for_thread,
                         resolve_obj_by_qualname, update_environment_variables)
 from vllm.worker.model_runner_base import (BroadcastableModelInput,
@@ -401,8 +401,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
             for o in output:
                 o.model_execute_time = (orig_model_execute_time +
                                         model_execute_time)
-                o.sampler_output_execute_timing = SamplerOutputExecuteTiming(
-                    time_ranges)
+                o.batch_execute_timing = BatchExecuteTiming(time_ranges)
 
         # output is List[SamplerOutput]
         return output

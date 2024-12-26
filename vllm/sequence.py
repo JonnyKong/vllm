@@ -102,7 +102,7 @@ class TimeRange:
 
 
 @dataclass
-class SamplerOutputExecuteTiming:
+class BatchExecuteTiming:
     """
     Execute timing for a token (SamplerOutput).
     """
@@ -118,17 +118,6 @@ class SamplerOutputExecuteTiming:
                 f'pp_rank_{i}_end': r.end,
             }
         return ret
-
-
-@dataclass
-class RequestExecuteTiming:
-    """
-    Execute timing for a request.
-    """
-    sampler_output_execute_timings: List[SamplerOutputExecuteTiming]
-
-    def append(self, t: SamplerOutputExecuteTiming):
-        self.sampler_output_execute_timings.append(t)
 
 
 @dataclass
@@ -160,7 +149,6 @@ class RequestMetrics:
     scheduler_time: Optional[float] = None
     model_forward_time: Optional[float] = None
     model_execute_time: Optional[float] = None
-    request_execute_timing: Optional[RequestExecuteTiming] = None
 
 
 class SequenceDataDelta(

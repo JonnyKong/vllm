@@ -16,10 +16,9 @@ from vllm.model_executor.sampling_metadata import (SamplingMetadata,
                                                    SamplingTensors,
                                                    SequenceGroupToSample)
 from vllm.sampling_params import SamplingType
-from vllm.sequence import (VLLM_INVALID_TOKEN_ID,
+from vllm.sequence import (VLLM_INVALID_TOKEN_ID, BatchExecuteTiming,
                            CompletionSequenceGroupOutput, Logprob,
-                           PromptLogprobs, SampleLogprobs,
-                           SamplerOutputExecuteTiming, SequenceOutput)
+                           PromptLogprobs, SampleLogprobs, SequenceOutput)
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 if envs.VLLM_USE_FLASHINFER_SAMPLER and find_spec("flashinfer"):
@@ -129,7 +128,7 @@ class SamplerOutput(
     model_execute_time: Optional[float] = None
 
     # Absolute execution timestamps
-    sampler_output_execute_timing: Optional[SamplerOutputExecuteTiming] = None
+    batch_execute_timing: Optional[BatchExecuteTiming] = None
 
     def __getitem__(self, idx: int) -> CompletionSequenceGroupOutput:
         return self.outputs[idx]

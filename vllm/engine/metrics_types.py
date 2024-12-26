@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Protocol
 
 from vllm.config import VllmConfig
-from vllm.sequence import RequestExecuteTiming
+from vllm.sequence import BatchExecuteTiming
 from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 
@@ -49,6 +49,7 @@ class Stats:
     time_to_first_tokens_iter: List[float]
     time_per_output_tokens_iter: List[float]
     num_preemption_iter: int
+    batch_execute_timing_iter: Optional[BatchExecuteTiming]
 
     # Request stats (should have _requests suffix)
     #   Latency
@@ -61,7 +62,6 @@ class Stats:
     time_in_queue_requests: List[float]
     model_forward_time_requests: List[float]
     model_execute_time_requests: List[float]
-    request_execute_timing_requests: List[RequestExecuteTiming]
     #   Metadata
     num_prompt_tokens_requests: List[int]
     num_generation_tokens_requests: List[int]

@@ -765,33 +765,6 @@ class CSVLogger(StatLoggerBase):
         raise NotImplementedError
 
 
-class RequestTimingCSVLogger(CSVLogger):
-    """
-    Each row is one request. Each log() might log multiple requests.
-    """
-
-    def log(self, stats: Stats) -> None:
-        for i in range(len(stats.request_execute_timing_requests)):
-            request_id = stats.request_id_requests[i]
-            request_timing = stats.request_execute_timing_requests[i]
-
-            for token_id, token_timing in enumerate(
-                    request_timing.sampler_output_execute_timings):
-                # TODO: how to get batch ID? Maybe move timing to from
-                # request-level to iter-level timing
-                self.csv_buf.append({
-                    'request_id': request_id,
-                    'token_id': token_id,
-                    **token_timing.to_dict()
-                })
-
-        if len(self.csv_buf) > 0:
-            # Only increment iter when there is data. Otherwise, if
-            # persist_to_disk() is called before any data is logged, the header
-            # will not be written to the CSV
-            self.increment_counter_and_maybe_persist_to_disk()
-
-
 class PerfMetricCSVLogger(CSVLogger):
     """
     Each row is the engine metrics at time of logging. Each log() adds one row.
@@ -820,7 +793,8 @@ class PerfMetricCSVLogger(CSVLogger):
     ]
 
     def log(self, stats: Stats) -> None:
-        self.csv_buf.append(
-            {field: getattr(stats, field)
-             for field in self.FIELDS})
+        perf_dict = {field: getattr(stats, field) for field in self.FIELDS}
+        if stats.batch_execute_timing_iter:
+            perf_dict |= {**stats.batch_execute_timing_iter.to_dict()}
+        self.csv_buf.append(perf_dict)
         self.increment_counter_and_maybe_persist_to_disk()

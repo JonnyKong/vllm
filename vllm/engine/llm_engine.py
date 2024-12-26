@@ -46,11 +46,11 @@ from vllm.outputs import (PoolingRequestOutput, RequestOutput,
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
-from vllm.sequence import (ExecuteModelRequest, ParallelSampleSequenceGroup,
-                           PoolingSequenceGroupOutput, RequestExecuteTiming,
-                           Sequence, SequenceGroup, SequenceGroupBase,
-                           SequenceGroupMetadata, SequenceGroupOutput,
-                           SequenceStatus)
+from vllm.sequence import (BatchExecuteTiming, ExecuteModelRequest,
+                           ParallelSampleSequenceGroup,
+                           PoolingSequenceGroupOutput, Sequence, SequenceGroup,
+                           SequenceGroupBase, SequenceGroupMetadata,
+                           SequenceGroupOutput, SequenceStatus)
 from vllm.tracing import (SpanAttributes, SpanKind, extract_trace_context,
                           init_tracer)
 from vllm.transformers_utils.detokenizer import Detokenizer
@@ -367,8 +367,7 @@ class LLMEngine:
                 # See https://prometheus.github.io/client_python/multiprocess/
                 from vllm.engine.metrics import (LoggingStatLogger,
                                                  PerfMetricCSVLogger,
-                                                 PrometheusStatLogger,
-                                                 RequestTimingCSVLogger)
+                                                 PrometheusStatLogger)
 
                 self.stat_loggers = {
                     "logging":
@@ -381,8 +380,6 @@ class LLMEngine:
                         labels=dict(
                             model_name=self.model_config.served_model_name),
                         vllm_config=vllm_config),
-                    "request_timing_csv":
-                    RequestTimingCSVLogger(filename="request_timing.csv"),
                     "perf_metric_csv":
                     PerfMetricCSVLogger(filename="perf_metric.csv"),
                 }
@@ -1113,12 +1110,6 @@ class LLMEngine:
                         else:
                             seq_group.metrics.model_execute_time = (
                                 o.model_execute_time)
-                        if o.sampler_output_execute_timing:
-                            if seq_group.metrics.request_execute_timing is None:
-                                seq_group.metrics.request_execute_timing \
-                                        = RequestExecuteTiming([])
-                            seq_group.metrics.request_execute_timing.append(
-                                o.sampler_output_execute_timing)
 
             if self.model_config.runner_type == "pooling":
                 self._process_sequence_group_outputs(seq_group, output)
@@ -1453,10 +1444,11 @@ class LLMEngine:
 
             # Check if need to run the usual non-async path
             if not allow_async_output_proc:
-                now = time.perf_counter() 
+                now = time.perf_counter()
                 self._process_model_outputs(ctx=ctx)
                 if scheduler_outputs:
-                    scheduler_outputs.process_model_outputs_time = time.perf_counter() - now
+                    scheduler_outputs.process_model_outputs_time \
+                            = time.perf_counter() - now
 
                 # Log stats.
                 self.do_log_stats(scheduler_outputs, outputs)
@@ -1600,8 +1592,9 @@ class LLMEngine:
             len(scheduler.waiting) for scheduler in self.scheduler)
         scheduler_time = (scheduler_outputs.scheduler_time
                           if scheduler_outputs else 0.0)
-        process_model_outputs_time = (scheduler_outputs.process_model_outputs_time
-                          if scheduler_outputs else 0.0)
+        process_model_outputs_time = (
+            scheduler_outputs.process_model_outputs_time
+            if scheduler_outputs else 0.0)
 
         # KV Cache Usage in %
         num_total_gpu = self.cache_config.num_gpu_blocks
@@ -1637,6 +1630,7 @@ class LLMEngine:
         time_per_output_tokens_iter: List[float] = []
         num_preemption_iter = (0 if scheduler_outputs is None else
                                scheduler_outputs.preempted)
+        batch_execute_timing_iter: Optional[BatchExecuteTiming] = None
 
         # Request stats
         #   Latency
@@ -1649,7 +1643,6 @@ class LLMEngine:
         time_in_queue_requests: List[float] = []
         model_forward_time_requests: List[float] = []
         model_execute_time_requests: List[float] = []
-        request_execute_timing_requests: List[RequestExecuteTiming] = []
         #   Metadata
         num_prompt_tokens_requests: List[int] = []
         num_generation_tokens_requests: List[int] = []
@@ -1769,9 +1762,6 @@ class LLMEngine:
                     if seq_group.metrics.model_execute_time is not None:
                         model_execute_time_requests.append(
                             seq_group.metrics.model_execute_time * 1000)
-                    if seq_group.metrics.request_execute_timing is not None:
-                        request_execute_timing_requests.append(
-                            seq_group.metrics.request_execute_timing)
                     # Metadata
                     num_prompt_tokens_requests.append(
                         len(seq_group.prompt_token_ids))
@@ -1810,6 +1800,10 @@ class LLMEngine:
         else:
             spec_decode_metrics = None
 
+        if model_output and model_output[0].batch_execute_timing:
+            # Timings for all request in a batch are same, only use first one
+            batch_execute_timing_iter = model_output[0].batch_execute_timing
+
         return Stats(
             now=now,
             # System stats
@@ -1836,6 +1830,7 @@ class LLMEngine:
             time_per_output_tokens_iter=time_per_output_tokens_iter,
             spec_decode_metrics=spec_decode_metrics,
             num_preemption_iter=num_preemption_iter,
+            batch_execute_timing_iter=batch_execute_timing_iter,
 
             # Request stats
             #   Latency
@@ -1848,7 +1843,6 @@ class LLMEngine:
             time_in_queue_requests=time_in_queue_requests,
             model_forward_time_requests=model_forward_time_requests,
             model_execute_time_requests=model_execute_time_requests,
-            request_execute_timing_requests=request_execute_timing_requests,
             #   Metadata
             num_prompt_tokens_requests=num_prompt_tokens_requests,
             num_generation_tokens_requests=num_generation_tokens_requests,
