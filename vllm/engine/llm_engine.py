@@ -1,4 +1,5 @@
 import copy
+import os
 import time
 from collections import Counter as collectionsCounter
 from collections import deque
@@ -381,7 +382,8 @@ class LLMEngine:
                             model_name=self.model_config.served_model_name),
                         vllm_config=vllm_config),
                     "perf_metric_csv":
-                    PerfMetricCSVLogger(filename="perf_metric.csv"),
+                    PerfMetricCSVLogger(
+                        filename=f"perf_metric_{os.getpid()}.csv"),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
