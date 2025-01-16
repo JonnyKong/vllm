@@ -385,7 +385,7 @@ class LLMEngine:
                         vllm_config=vllm_config),
                     "perf_metric_csv":
                     PerfMetricCSVLogger(
-                        filename=f"perf_metric_{os.getpid()}.csv"),
+                        filename=f"logs/perf_metric_{os.getpid()}.csv"),
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
@@ -396,7 +396,7 @@ class LLMEngine:
                 target=start_nvml_monitor,
                 kwargs={
                     'interval': 0.01,
-                    'csv_filename': "power_log.csv",
+                    'csv_filename': "logs/power_log.csv",
                 },
                 daemon=True)
             self.power_monitor_process.start()

@@ -733,6 +733,7 @@ class CSVLogger(StatLoggerBase):
         self.filename = filename
         self.persist_to_disk_every = persist_to_disk_every
 
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         if os.path.exists(filename):
             os.remove(filename)
         self.iter = 0

@@ -27,8 +27,10 @@ class NvmlPowerMonitor:
             ]
 
             column_names = ["Timestamp"] \
-                    + [f"GPU_{i}" for i in range(gpu_count)]
-            os.remove(self.csv_filename)
+                + [f"GPU_{i}" for i in range(gpu_count)]
+            os.makedirs(os.path.dirname(self.csv_filename), exist_ok=True)
+            if os.path.exists(self.csv_filename):
+                os.remove(self.csv_filename)
             with open(self.csv_filename, mode='w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(column_names)
@@ -67,9 +69,7 @@ class NvmlPowerMonitor:
             self.power_logs = []  # Clear logs after writing
 
 
-def start_nvml_monitor(interval=0.1,
-                       csv_filename="power_log.csv",
-                       log_interval=1):
+def start_nvml_monitor(interval: float, csv_filename: str, log_interval=1):
     monitor = NvmlPowerMonitor(interval=interval,
                                csv_filename=csv_filename,
                                log_interval=log_interval)
