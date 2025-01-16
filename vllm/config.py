@@ -2491,6 +2491,8 @@ class ObservabilityConfig:
     # If set, collects the model execute time for the request.
     collect_model_execute_time: bool = False
 
+    collect_power_usage: bool = False
+
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,

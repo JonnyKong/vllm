@@ -1233,6 +1233,7 @@ class EngineArgs:
             or "all" in detailed_trace_modules,
             collect_model_execute_time="worker" in detailed_trace_modules
             or "all" in detailed_trace_modules,
+            collect_power_usage=(self.collect_detailed_traces is not None),
         )
 
         config = VllmConfig(

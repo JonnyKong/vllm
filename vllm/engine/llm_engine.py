@@ -1,4 +1,5 @@
 import copy
+import multiprocessing
 import os
 import time
 from collections import Counter as collectionsCounter
@@ -44,6 +45,7 @@ from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
+from vllm.platforms.nvml_power_monitor import start_nvml_monitor
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
@@ -388,6 +390,17 @@ class LLMEngine:
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
 
+        self.power_monitor_process: Optional[multiprocessing.Process] = None
+        if self.observability_config.collect_power_usage:
+            self.power_monitor_process = multiprocessing.Process(
+                target=start_nvml_monitor,
+                kwargs={
+                    'interval': 0.01,
+                    'csv_filename': "power_log.csv",
+                },
+                daemon=True)
+            self.power_monitor_process.start()
+
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:
             self.tracer = init_tracer(
@@ -540,6 +553,9 @@ class LLMEngine:
         # Use getattr since __init__ can fail before the field is set
         if model_executor := getattr(self, "model_executor", None):
             model_executor.shutdown()
+        if self.power_monitor_process:
+            self.power_monitor_process.kill()
+            self.power_monitor_process.join()
 
     def get_tokenizer_group(
         self,
