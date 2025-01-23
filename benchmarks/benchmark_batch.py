@@ -1,8 +1,10 @@
 import argparse
+import asyncio
 import os
 import random
 from typing import Dict, List
 
+import tqdm
 import uvloop
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
@@ -24,9 +26,15 @@ request_id = 0
 
 async def main(
     args: argparse.Namespace,
+    prefill_input_lens: List[int],
+    decode_input_lens: List[int],
     disable_frontend_multiprocessing: bool = True,
+    num_iters: int = 100,
 ):
-    print(args)
+    """
+    Feed executor with ExecuteModelRequest similar to how it's done in
+    `AsyncLLMEngine`
+    """
     random.seed(args.seed)
 
     engine_args = AsyncEngineArgs.from_cli_args(args)
@@ -46,18 +54,50 @@ async def main(
     async with build_async_engine_client_from_engine_args(
             engine_args, disable_frontend_multiprocessing) as llm:
         assert isinstance(llm, AsyncLLMEngine)
-        executor = llm.engine.model_executor
 
-        # Feed executor with ExecuteModelRequest similar to how it's done in
-        # `AsyncLLMEngine`
-        for _ in range(100):
-            req = build_dummy_execute_model_request(
+        executor = llm.engine.model_executor
+        pipeline_parallel_size \
+                = llm.engine.parallel_config.pipeline_parallel_size
+
+        # Keep `pipeline_parallel_size` instances of `execute_model_async()`
+        # running concurrently
+        initial_requests = [
+            build_dummy_execute_model_request(
                 llm,
                 tokenizer,
-                prefill_input_lens=[1024, 1024],
-                decode_input_lens=[100, 200, 300, 400, 500])
-            outputs = await executor.execute_model_async(req)
-            perf_metric_logger.log(get_stats(llm, outputs))
+                prefill_input_lens=prefill_input_lens,
+                decode_input_lens=decode_input_lens)
+            for ve in range(pipeline_parallel_size)
+        ]
+        requests_in_progress = [
+            asyncio.create_task(executor.execute_model_async(req))
+            for req in initial_requests
+        ]
+
+        for iter in tqdm.tqdm(range(num_iters)):
+            done, _ = await asyncio.wait(requests_in_progress,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            for _ in range(pipeline_parallel_size):
+                await asyncio.sleep(0)
+            for task in done:
+                output = task.result()
+                perf_metric_logger.log(get_stats(llm, output))
+
+                # Insert new req
+                virtual_engine = requests_in_progress.index(task)
+                req = build_dummy_execute_model_request(
+                    llm,
+                    tokenizer,
+                    prefill_input_lens=prefill_input_lens,
+                    decode_input_lens=decode_input_lens)
+                requests_in_progress[virtual_engine] = asyncio.create_task(
+                    executor.execute_model_async(req))
+
+        # Cleanup
+        _ = await asyncio.wait(requests_in_progress,
+                               return_when=asyncio.ALL_COMPLETED)
+
+    perf_metric_logger.persist_to_disk()
 
 
 def build_dummy_execute_model_request(
@@ -150,4 +190,7 @@ if __name__ == '__main__':
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
-    uvloop.run(main(args), )
+    uvloop.run(
+        main(args,
+             prefill_input_lens=[1024, 1024],
+             decode_input_lens=[100, 200, 300, 400, 500]))
