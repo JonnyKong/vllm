@@ -744,8 +744,6 @@ class CSVLogger(StatLoggerBase):
     def increment_counter_and_maybe_persist_to_disk(self):
         self.iter += 1
         if self.iter % self.persist_to_disk_every == 0:
-            logger.info("CSVLogger persisting %d entries to disk",
-                        len(self.csv_buf))
             self.persist_to_disk()
 
     def persist_to_disk(self):
@@ -756,6 +754,8 @@ class CSVLogger(StatLoggerBase):
                                           mode='a',
                                           header=not file_exists,
                                           index=False)
+        logger.info("CSVLogger persisting %d entries to disk",
+                    len(self.csv_buf))
         self.csv_buf.clear()
 
     @abstractmethod

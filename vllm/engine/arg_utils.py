@@ -198,6 +198,8 @@ class EngineArgs:
 
     generation_config: Optional[str] = None
 
+    log_dir: str = "./logs"
+
     def __post_init__(self):
         if not self.tokenizer:
             self.tokenizer = self.model
@@ -955,6 +957,8 @@ class EngineArgs:
             "loaded from model. If set to a folder path, the generation config "
             "will be loaded from the specified folder path.")
 
+        parser.add_argument("--log-dir", default='./logs')
+
         return parser
 
     @classmethod
@@ -1250,6 +1254,7 @@ class EngineArgs:
             prompt_adapter_config=prompt_adapter_config,
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
+            log_dir=self.log_dir,
         )
 
         if envs.VLLM_USE_V1:

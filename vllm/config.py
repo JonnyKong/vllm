@@ -2991,6 +2991,7 @@ class VllmConfig:
     additional_config: SupportsHash = field(default=None,
                                             init=True)  # type: ignore
     instance_id: str = ""
+    log_dir: Optional[str] = None
 
     def compute_hash(self) -> str:
         """

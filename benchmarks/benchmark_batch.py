@@ -48,8 +48,10 @@ async def main(
     tokenizer = AutoTokenizer.from_pretrained(
         args.model, trust_remote_code=args.trust_remote_code)
 
+    # The `PerfMetricCSVLogger` of `LLMEngine` will not be invoked when we
+    # directly call the executor, so we create another logger outside it
     perf_metric_logger = PerfMetricCSVLogger(
-        filename=f"logs/perf_metric_{os.getpid()}.csv")
+        filename=f"{args.log_dir}/perf_metric_{os.getpid()}.csv")
 
     async with build_async_engine_client_from_engine_args(
             engine_args, disable_frontend_multiprocessing) as llm:
