@@ -19,15 +19,18 @@ from vllm.entrypoints.openai.api_server import (
 from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.sequence import (ExecuteModelRequest, SequenceData,
                            SequenceGroupMetadata)
-from vllm.utils import FlexibleArgumentParser, cdiv
+from vllm.utils import FlexibleArgumentParser, cdiv, random_uuid
 
-request_id = 0
+dummy_seq_group_metadata_prefill_cache: List[SequenceGroupMetadata] = []
+dummy_seq_group_metadata_decode_cache: List[SequenceGroupMetadata] = []
 
 
 async def main(
     args: argparse.Namespace,
-    prefill_input_lens: List[int],
-    decode_input_lens: List[int],
+    prefill_input_len: int,
+    prefill_bs: int,
+    decode_input_len: int,
+    decode_bs: int,
     disable_frontend_multiprocessing: bool = True,
     num_iters: int = 100,
 ):
@@ -57,6 +60,10 @@ async def main(
             engine_args, disable_frontend_multiprocessing) as llm:
         assert isinstance(llm, AsyncLLMEngine)
 
+        populate_dummy_seq_group_metadata_cache(llm, tokenizer,
+                                                prefill_input_len,
+                                                decode_input_len)
+
         executor = llm.engine.model_executor
         pipeline_parallel_size \
                 = llm.engine.parallel_config.pipeline_parallel_size
@@ -64,11 +71,8 @@ async def main(
         # Keep `pipeline_parallel_size` instances of `execute_model_async()`
         # running concurrently
         initial_requests = [
-            build_dummy_execute_model_request(
-                llm,
-                tokenizer,
-                prefill_input_lens=prefill_input_lens,
-                decode_input_lens=decode_input_lens)
+            build_dummy_execute_model_request(prefill_bs=prefill_bs,
+                                              decode_bs=decode_bs)
             for ve in range(pipeline_parallel_size)
         ]
         requests_in_progress = [
@@ -87,11 +91,8 @@ async def main(
 
                 # Insert new req
                 virtual_engine = requests_in_progress.index(task)
-                req = build_dummy_execute_model_request(
-                    llm,
-                    tokenizer,
-                    prefill_input_lens=prefill_input_lens,
-                    decode_input_lens=decode_input_lens)
+                req = build_dummy_execute_model_request(prefill_bs=prefill_bs,
+                                                        decode_bs=decode_bs)
                 requests_in_progress[virtual_engine] = asyncio.create_task(
                     executor.execute_model_async(req))
 
@@ -102,19 +103,46 @@ async def main(
     perf_metric_logger.persist_to_disk()
 
 
+def populate_dummy_seq_group_metadata_cache(llm: AsyncLLMEngine,
+                                            tokenizer: PreTrainedTokenizerBase,
+                                            prefill_input_len: int,
+                                            decode_input_len: int,
+                                            cache_size: int = 4096):
+    """
+    Populate cache with prebuilt `SequenceGroupMetadata`, so that we don't
+    construct them online which is time consuming. The `cache_size` should
+    be sufficiently large so we have a variety of requests with different
+    block tables.
+    """
+    global dummy_seq_group_metadata_prefill_cache
+    global dummy_seq_group_metadata_decode_cache
+
+    dummy_seq_group_metadata_prefill_cache = [
+        build_dummy_seq_group_metadata(llm=llm,
+                                       tokenizer=tokenizer,
+                                       input_len=prefill_input_len,
+                                       is_prompt=True)
+        for _ in range(cache_size)
+    ]
+    dummy_seq_group_metadata_decode_cache = [
+        build_dummy_seq_group_metadata(llm=llm,
+                                       tokenizer=tokenizer,
+                                       input_len=decode_input_len,
+                                       is_prompt=False)
+        for _ in range(cache_size)
+    ]
+
+
 def build_dummy_execute_model_request(
-    llm: AsyncLLMEngine,
-    tokenizer: PreTrainedTokenizerBase,
-    prefill_input_lens: List[int],
-    decode_input_lens: List[int],
+    prefill_bs: int,
+    decode_bs: int,
 ) -> ExecuteModelRequest:
-    seq_group_metadata_list: List[SequenceGroupMetadata] = \
-        [build_dummy_seq_group_metadata(
-            llm, tokenizer, input_len, is_prompt=True)
-         for input_len in prefill_input_lens] + \
-        [build_dummy_seq_group_metadata(
-            llm, tokenizer, input_len, is_prompt=False)
-         for input_len in decode_input_lens]
+    seq_group_metadata_list: List[SequenceGroupMetadata] = []
+    seq_group_metadata_list.extend(
+        random.sample(dummy_seq_group_metadata_prefill_cache, prefill_bs))
+    seq_group_metadata_list.extend(
+        random.sample(dummy_seq_group_metadata_decode_cache, decode_bs))
+
     return ExecuteModelRequest(seq_group_metadata_list=seq_group_metadata_list,
                                # All the rest stay as default
                                )
@@ -129,16 +157,13 @@ def build_dummy_seq_group_metadata(
     """
     Send requests as new every time (no `SequenceGroupMetadataDelta`).
     """
-    global request_id
+    seq = SequenceData.from_seqs([
+        random.randint(0, tokenizer.vocab_size - 1) for _ in range(input_len)
+    ])
+    if not is_prompt:
+        seq.update_num_computed_tokens(input_len - 1)
 
-    # Each `SequenceGroup` contains one random seq
-    seq_data: Dict[int, SequenceData] = {
-        0:
-        SequenceData.from_seqs([
-            random.randint(0, tokenizer.vocab_size - 1)
-            for _ in range(input_len)
-        ])
-    }
+    seq_data: Dict[int, SequenceData] = {0: seq}
 
     # Same as in `benchmark_throughput.py`
     sampling_params = SamplingParams(
@@ -167,7 +192,7 @@ def build_dummy_seq_group_metadata(
     do_sample = True
 
     ret = SequenceGroupMetadata(
-        request_id=str(request_id),
+        request_id=random_uuid(),
         is_prompt=is_prompt,
         seq_data=seq_data,
         sampling_params=sampling_params,
@@ -175,7 +200,6 @@ def build_dummy_seq_group_metadata(
         do_sample=do_sample,
         # Assume the rest doesn't matter and uses defaults
     )
-    request_id += 1
     return ret
 
 
@@ -194,5 +218,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     uvloop.run(
         main(args,
-             prefill_input_lens=[1024, 1024],
-             decode_input_lens=[100, 200, 300, 400, 500]))
+             prefill_input_len=512,
+             prefill_bs=2,
+             decode_input_len=512,
+             decode_bs=128))
