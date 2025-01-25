@@ -32,7 +32,7 @@ async def main(
     decode_input_len: int,
     decode_bs: int,
     disable_frontend_multiprocessing: bool = True,
-    num_iters: int = 100,
+    num_iters: int = 500,
 ):
     """
     Feed executor with ExecuteModelRequest similar to how it's done in
