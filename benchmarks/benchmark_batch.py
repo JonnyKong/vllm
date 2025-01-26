@@ -25,7 +25,7 @@ dummy_seq_group_metadata_prefill_cache: List[SequenceGroupMetadata] = []
 dummy_seq_group_metadata_decode_cache: List[SequenceGroupMetadata] = []
 
 
-async def main(
+async def benchmark_batch(
     args: argparse.Namespace,
     prefill_input_len: int,
     prefill_bs: int,
@@ -217,8 +217,8 @@ if __name__ == '__main__':
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
     uvloop.run(
-        main(args,
-             prefill_input_len=512,
-             prefill_bs=2,
-             decode_input_len=512,
-             decode_bs=128))
+        benchmark_batch(args,
+                        prefill_input_len=512,
+                        prefill_bs=2,
+                        decode_input_len=512,
+                        decode_bs=128))
