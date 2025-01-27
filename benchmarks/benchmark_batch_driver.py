@@ -1,4 +1,5 @@
 import contextlib
+import os
 from pathlib import Path
 
 import torch
@@ -13,15 +14,15 @@ def get_gpu_name():
     return torch.cuda.get_device_name().split(' ')[-1]
 
 
-def yield_benchmark_batch_args():
+def yield_benchmark_batch_args(skip_existing: bool = False):
     tp = 1
     pp = 1
     expr_dir = Path(
         '/export2/kong102/energy_efficient_serving_results/request_timing/2025-01-22_benchmark-batch'
     )
 
-    for prefill_input_len in [1, 16, 1024]:
-        for decode_input_len in [1, 16, 1024]:
+    for prefill_input_len in [16, 1024]:
+        for decode_input_len in [16, 1024]:
             for prefill_bs in [0, 1, 8]:
                 for decode_bs in [0, 8, 512]:
 
@@ -30,6 +31,8 @@ def yield_benchmark_batch_args():
 
                     log_dir = expr_dir / \
                         f'{get_gpu_name()}_tp{tp}_pp{pp}_prefill-len-{prefill_input_len}-bs-{prefill_bs}_decode-len-{decode_input_len}-bs-{decode_bs}'
+                    if skip_existing and os.path.exists(log_dir):
+                        continue
                     vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
                                  f"-tp {tp} "
                                  f"-pp {pp} "

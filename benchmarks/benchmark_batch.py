@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import os
 import random
+import time
 from typing import Dict, List
 
 import tqdm
@@ -32,7 +33,8 @@ async def benchmark_batch(
     decode_input_len: int,
     decode_bs: int,
     disable_frontend_multiprocessing: bool = True,
-    num_iters: int = 500,
+    max_num_iters: int = 500,
+    max_seconds: int = 60,
 ):
     """
     Feed executor with ExecuteModelRequest similar to how it's done in
@@ -80,7 +82,8 @@ async def benchmark_batch(
             for req in initial_requests
         ]
 
-        for iter in tqdm.tqdm(range(num_iters)):
+        time_start = time.perf_counter()
+        for iter in tqdm.tqdm(range(max_num_iters)):
             done, _ = await asyncio.wait(requests_in_progress,
                                          return_when=asyncio.FIRST_COMPLETED)
             for _ in range(pipeline_parallel_size):
@@ -95,6 +98,11 @@ async def benchmark_batch(
                                                         decode_bs=decode_bs)
                 requests_in_progress[virtual_engine] = asyncio.create_task(
                     executor.execute_model_async(req))
+
+            if time.perf_counter() - time_start > max_seconds:
+                print(
+                    f'Run terminated early on reaching {max_seconds} seconds')
+                break
 
         # Cleanup
         _ = await asyncio.wait(requests_in_progress,
