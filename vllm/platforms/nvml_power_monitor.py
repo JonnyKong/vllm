@@ -21,13 +21,20 @@ class NvmlPowerMonitor:
     def monitor_power(self):
         pynvml.nvmlInit()
         try:
-            gpu_count = pynvml.nvmlDeviceGetCount()
+            # Get the GPUs specified by CUDA_VISIBLE_DEVICES
+            cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
+            if cuda_visible_devices is not None:
+                visible_indices = [
+                    int(x) for x in cuda_visible_devices.split(",")
+                ]
+            else:
+                visible_indices = list(range(pynvml.nvmlDeviceGetCount()))
             handles = [
-                pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(gpu_count)
+                pynvml.nvmlDeviceGetHandleByIndex(i) for i in visible_indices
             ]
 
             column_names = ["Timestamp"] \
-                + [f"GPU_{i}" for i in range(gpu_count)]
+                + [f"GPU_{i}" for i in range(len(handles))]
             os.makedirs(os.path.dirname(self.csv_filename), exist_ok=True)
             if os.path.exists(self.csv_filename):
                 os.remove(self.csv_filename)
@@ -35,7 +42,7 @@ class NvmlPowerMonitor:
                 writer = csv.writer(csvfile)
                 writer.writerow(column_names)
 
-            logger.info('Monitoring power usage for %d GPUs...', gpu_count)
+            logger.info('Monitoring power usage for %d GPUs...', len(handles))
             last_log_time = time.perf_counter()
 
             while not self.stop_monitoring:

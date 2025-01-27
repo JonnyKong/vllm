@@ -20,10 +20,10 @@ def yield_benchmark_batch_args():
         '/export2/kong102/energy_efficient_serving_results/request_timing/2025-01-22_benchmark-batch'
     )
 
-    for prefill_input_len in [1, 16, 256, 1024]:
-        for decode_input_len in [1, 16, 256, 1024]:
-            for prefill_bs in [0, 1, 2, 4, 8]:
-                for decode_bs in [0, 1, 8, 64, 512]:
+    for prefill_input_len in [1, 16, 1024]:
+        for decode_input_len in [1, 16, 1024]:
+            for prefill_bs in [0, 1, 8]:
+                for decode_bs in [0, 8, 512]:
 
                     if prefill_bs == 0 and decode_bs == 0:
                         continue
