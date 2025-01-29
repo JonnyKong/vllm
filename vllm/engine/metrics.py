@@ -729,8 +729,17 @@ class CSVLogger(StatLoggerBase):
     Logs to CSV. Writes are incremental to avoid blocking.
     """
 
-    def __init__(self, filename, persist_to_disk_every=100) -> None:
+    def __init__(self,
+                 filename,
+                 disable_periodic_persist_to_disk: bool = False,
+                 persist_to_disk_every: int = 100) -> None:
+        """
+        `disable_periodic_persist_to_disk`: Set this to false to disable
+        periodic log flush that blocks the vLLM operation, to get accurate
+        timings measurements.
+        """
         self.filename = filename
+        self.disable_periodic_persist_to_disk = disable_periodic_persist_to_disk
         self.persist_to_disk_every = persist_to_disk_every
 
         os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -743,7 +752,8 @@ class CSVLogger(StatLoggerBase):
 
     def increment_counter_and_maybe_persist_to_disk(self):
         self.iter += 1
-        if self.iter % self.persist_to_disk_every == 0:
+        if not self.disable_periodic_persist_to_disk \
+                and self.iter % self.persist_to_disk_every == 0:
             self.persist_to_disk()
 
     def persist_to_disk(self):

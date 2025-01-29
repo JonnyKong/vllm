@@ -1,5 +1,7 @@
 import argparse
 import asyncio
+import contextlib
+import gc
 import os
 import random
 import time
@@ -24,6 +26,17 @@ from vllm.utils import FlexibleArgumentParser, cdiv, random_uuid
 
 dummy_seq_group_metadata_prefill_cache: List[SequenceGroupMetadata] = []
 dummy_seq_group_metadata_decode_cache: List[SequenceGroupMetadata] = []
+
+
+@contextlib.contextmanager
+def disable_python_gc():
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
 
 
 async def benchmark_batch(
@@ -56,7 +69,8 @@ async def benchmark_batch(
     # The `PerfMetricCSVLogger` of `LLMEngine` will not be invoked when we
     # directly call the executor, so we create another logger outside it
     perf_metric_logger = PerfMetricCSVLogger(
-        filename=f"{args.log_dir}/perf_metric_{os.getpid()}.csv")
+        filename=f"{args.log_dir}/perf_metric_{os.getpid()}.csv",
+        disable_periodic_persist_to_disk=True)
 
     async with build_async_engine_client_from_engine_args(
             engine_args, disable_frontend_multiprocessing) as llm:
@@ -82,31 +96,32 @@ async def benchmark_batch(
             for req in initial_requests
         ]
 
-        time_start = time.perf_counter()
-        for iter in tqdm.tqdm(range(max_num_iters)):
-            done, _ = await asyncio.wait(requests_in_progress,
-                                         return_when=asyncio.FIRST_COMPLETED)
-            for _ in range(pipeline_parallel_size):
-                await asyncio.sleep(0)
-            for task in done:
-                output = task.result()
-                perf_metric_logger.log(get_stats(llm, output))
+        with disable_python_gc():
+            time_start = time.perf_counter()
+            for iter in tqdm.tqdm(range(max_num_iters)):
+                done, _ = await asyncio.wait(
+                    requests_in_progress, return_when=asyncio.FIRST_COMPLETED)
+                for _ in range(pipeline_parallel_size):
+                    await asyncio.sleep(0)
+                for task in done:
+                    output = task.result()
+                    perf_metric_logger.log(get_stats(llm, output))
 
-                # Insert new req
-                virtual_engine = requests_in_progress.index(task)
-                req = build_dummy_execute_model_request(prefill_bs=prefill_bs,
-                                                        decode_bs=decode_bs)
-                requests_in_progress[virtual_engine] = asyncio.create_task(
-                    executor.execute_model_async(req))
+                    # Insert new req
+                    virtual_engine = requests_in_progress.index(task)
+                    req = build_dummy_execute_model_request(
+                        prefill_bs=prefill_bs, decode_bs=decode_bs)
+                    requests_in_progress[virtual_engine] = asyncio.create_task(
+                        executor.execute_model_async(req))
 
-            if time.perf_counter() - time_start > max_seconds:
-                print(
-                    f'Run terminated early on reaching {max_seconds} seconds')
-                break
+                if time.perf_counter() - time_start > max_seconds:
+                    print(f'Run terminated early on reaching {max_seconds}'
+                          'seconds')
+                    break
 
-        # Cleanup
-        _ = await asyncio.wait(requests_in_progress,
-                               return_when=asyncio.ALL_COMPLETED)
+            # Cleanup
+            _ = await asyncio.wait(requests_in_progress,
+                                   return_when=asyncio.ALL_COMPLETED)
 
     perf_metric_logger.persist_to_disk()
 
