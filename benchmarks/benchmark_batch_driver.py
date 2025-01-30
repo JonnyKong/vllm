@@ -1,63 +1,77 @@
-import contextlib
+import itertools
 import os
 from pathlib import Path
 
-import torch
 import uvloop
-from benchmark_batch import benchmark_batch
+from benchmark_batch import BenchmarkBatchParam, benchmark_batch
 
 from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
 
 
-def get_gpu_name():
-    return torch.cuda.get_device_name().split(' ')[-1]
+def uniform_sample_sorted(lst, k):
+    """
+    Selects `k` elements from the sorted input list as uniformly as possible,
+    ensuring the first and last elements are included.
+    """
+    if k < 2 or k > len(lst):
+        raise ValueError(
+            "k must be at least 2 and at most the length of the list")
+    lst = sorted(lst)
+    step = (len(lst) - 1) / (k - 1)
+    indices = sorted(set(round(i * step) for i in range(k)))
+    return [lst[i] for i in indices]
 
 
 def yield_benchmark_batch_args(skip_existing: bool = False):
-    tp = 1
-    pp = 1
     expr_dir = Path(
-        '/export2/kong102/energy_efficient_serving_results/request_timing/2025-01-22_benchmark-batch'
+        '/export2/kong102/energy_efficient_serving_results/request_timing/2025-01-29_benchmark-batch/A40-pp1-tp1/'
     )
 
-    for prefill_input_len in [16, 1024]:
-        for decode_input_len in [16, 1024]:
-            for prefill_bs in [0, 1, 8]:
-                for decode_bs in [0, 8, 512]:
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), 16)
+    prefill_input_lens = [256, 1024]
+    prefill_bss = [0, 1, 8]
+    decode_input_lens = [256, 1024]
+    decode_bss = [0, 8, 256]
 
-                    if prefill_bs == 0 and decode_bs == 0:
-                        continue
+    for freq, prefill_input_len, prefill_bs, decode_input_len, decode_bs in \
+            itertools.product(
+                test_freqs,
+                prefill_input_lens,
+                prefill_bss,
+                decode_input_lens,
+                decode_bss,
+            ):
+        if prefill_bs == 0 and decode_bs == 0:
+            continue
 
-                    log_dir = expr_dir / \
-                        f'{get_gpu_name()}_tp{tp}_pp{pp}_prefill-len-{prefill_input_len}-bs-{prefill_bs}_decode-len-{decode_input_len}-bs-{decode_bs}'
-                    if skip_existing and os.path.exists(log_dir):
-                        continue
-                    vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
-                                 f"-tp {tp} "
-                                 f"-pp {pp} "
-                                 "--collect-detailed-traces worker "
-                                 f"--log-dir {log_dir} ").split()
+        log_dir = expr_dir / \
+            f'prefill-len-{prefill_input_len}-bs-{prefill_bs}_decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}'
+        if skip_existing and os.path.exists(log_dir):
+            continue
 
-                    parser = FlexibleArgumentParser(
-                        description="Benchmark per-batch.")
-                    parser = AsyncEngineArgs.add_cli_args(parser)
-                    vllm_args = parser.parse_args(vllm_args)
-
-                    yield {
-                        'args': vllm_args,
-                        'prefill_input_len': prefill_input_len,
-                        'prefill_bs': prefill_bs,
-                        'decode_input_len': decode_input_len,
-                        'decode_bs': decode_bs,
-                    }
+        yield BenchmarkBatchParam(
+            prefill_input_lens=[prefill_input_len] * prefill_bs,
+            decode_input_lens=[decode_input_len] * decode_bs,
+            log_dir=str(log_dir),
+            gpu_freq_mhz=freq,
+        )
 
 
 def main():
-    for benchmark_batch_args in yield_benchmark_batch_args():
-        print('log_dir:', benchmark_batch_args['args'].log_dir)
-        with contextlib.suppress(torch.OutOfMemoryError):
-            uvloop.run(benchmark_batch(**benchmark_batch_args))
+    tp = 1
+    pp = 1
+    vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
+                 f"-tp {tp} "
+                 f"-pp {pp} "
+                 "--collect-detailed-traces worker").split()
+    parser = FlexibleArgumentParser(description="Benchmark per-batch.")
+    parser = AsyncEngineArgs.add_cli_args(parser)
+    vllm_args = parser.parse_args(vllm_args)
+
+    # Pass in a list instead of generator so tqdm prints progress
+    uvloop.run(benchmark_batch(vllm_args, list(yield_benchmark_batch_args())))
 
 
 if __name__ == '__main__':

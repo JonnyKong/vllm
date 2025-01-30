@@ -730,7 +730,7 @@ class CSVLogger(StatLoggerBase):
     """
 
     def __init__(self,
-                 filename,
+                 filename: str,
                  disable_periodic_persist_to_disk: bool = False,
                  persist_to_disk_every: int = 100) -> None:
         """

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "all"]
+ALLOWED_DETAILED_TRACE_MODULES = ["model", "worker", "power", "all"]
 
 DEVICE_OPTIONS = [
     "auto",
@@ -1237,7 +1237,8 @@ class EngineArgs:
             or "all" in detailed_trace_modules,
             collect_model_execute_time="worker" in detailed_trace_modules
             or "all" in detailed_trace_modules,
-            collect_power_usage=(self.collect_detailed_traces is not None),
+            collect_power_usage="power" in detailed_trace_modules
+            or "all" in detailed_trace_modules,
         )
 
         config = VllmConfig(
