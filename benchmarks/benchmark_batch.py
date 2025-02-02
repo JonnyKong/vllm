@@ -66,6 +66,7 @@ class BenchmarkBatchParam:
     decode_input_lens: List[int]
     log_dir: str
     gpu_freq_mhz: int
+    delay_time_s: float = 0.0  # Delay before issuing each batch.
 
     # Run terminates when both reaches
     min_num_iters: int = 10
@@ -147,6 +148,7 @@ async def benchmark_batch(
                         # Insert new req
                         virtual_engine = requests_in_progress.index(task)
                         req = next(request_gen)
+                        await asyncio.sleep(param.delay_time_s)
                         requests_in_progress[
                             virtual_engine] = asyncio.create_task(
                                 executor.execute_model_async(req))
@@ -255,7 +257,7 @@ if __name__ == '__main__':
     parser = AsyncEngineArgs.add_cli_args(parser)
     vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
                  f"-tp {1} "
-                 f"-pp {1} "
+                 f"-pp {2} "
                  "--collect-detailed-traces worker").split()
     vllm_args = parser.parse_args(vllm_args)
 
@@ -264,6 +266,7 @@ if __name__ == '__main__':
         decode_input_lens=[128 for _ in range(512)],
         log_dir='./logs',
         gpu_freq_mhz=nvml_get_available_freq()[0],
+        delay_time_s=0.0,
     )
 
     uvloop.run(benchmark_batch(vllm_args, [benchmark_batch_param]))
