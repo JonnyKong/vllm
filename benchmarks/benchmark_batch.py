@@ -68,8 +68,8 @@ class BenchmarkBatchParam:
     gpu_freq_mhz: int
 
     # Run terminates when both reaches
-    min_num_iters: int = 20
-    min_seconds: int = 10
+    min_num_iters: int = 10
+    min_seconds: int = 5
 
 
 async def benchmark_batch(

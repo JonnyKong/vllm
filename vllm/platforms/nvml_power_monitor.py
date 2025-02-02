@@ -3,6 +3,7 @@ import csv
 import multiprocessing
 import os
 import time
+from typing import List
 
 import pynvml
 
@@ -13,17 +14,21 @@ logger = init_logger(__name__)
 
 class NvmlPowerMonitor:
 
-    def __init__(self, interval, csv_filename, log_interval):
+    def __init__(self,
+                 interval: float,
+                 csv_filename: str,
+                 log_interval: float,
+                 enable_mem_freq_meas: bool = False):
         self.interval = interval
         self.csv_filename = csv_filename
         self.log_interval = log_interval
-        self.logs = []  # Stores power and frequency readings with timestamps
+        self.enable_mem_freq_meas = enable_mem_freq_meas
+        self.logs: List[List[float]] = []
         self.stop_monitoring = False
 
     def monitor_power_and_freq(self):
         pynvml.nvmlInit()
         try:
-            # Get the GPUs specified by CUDA_VISIBLE_DEVICES
             cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
             if cuda_visible_devices is not None:
                 visible_indices = [
@@ -39,6 +44,8 @@ class NvmlPowerMonitor:
             for i in range(len(handles)):
                 column_names.append(f"GPU_{i}_power_w")
                 column_names.append(f"GPU_{i}_freq_mhz")
+                if self.enable_mem_freq_meas:
+                    column_names.append(f"GPU_{i}_mem_freq_mhz")
 
             os.makedirs(os.path.dirname(self.csv_filename), exist_ok=True)
             if os.path.exists(self.csv_filename):
@@ -56,20 +63,22 @@ class NvmlPowerMonitor:
                 readings = [timestamp]
                 for handle in handles:
                     power_usage = pynvml.nvmlDeviceGetPowerUsage(
-                        handle) / 1000.0  # Convert mW to W
+                        handle) / 1000.0
                     freq = pynvml.nvmlDeviceGetClockInfo(
-                        handle, pynvml.NVML_CLOCK_GRAPHICS)  # Frequency in MHz
+                        handle, pynvml.NVML_CLOCK_GRAPHICS)
                     readings.extend([power_usage, freq])
+                    if self.enable_mem_freq_meas:
+                        mem_freq = pynvml.nvmlDeviceGetClockInfo(
+                            handle, pynvml.NVML_CLOCK_MEM)
+                        readings.append(mem_freq)
                 self.logs.append(readings)
 
-                # Periodically write logs to CSV
                 if timestamp - last_log_time >= self.log_interval:
                     self._write_logs_to_csv()
                     last_log_time = timestamp
 
                 time.sleep(self.interval)
 
-            # Write remaining logs on exit
             self._write_logs_to_csv()
 
         finally:
@@ -82,21 +91,29 @@ class NvmlPowerMonitor:
                 writer.writerows(self.logs)
             logger.debug('Appended %d log entries to %s', len(self.logs),
                          self.csv_filename)
-            self.logs = []  # Clear logs after writing
+            self.logs = []
 
 
-def start_nvml_monitor(interval: float, csv_filename: str, log_interval=1):
+def start_nvml_monitor(interval: float,
+                       csv_filename: str,
+                       log_interval=1,
+                       enable_mem_freq_meas=False):
     monitor = NvmlPowerMonitor(interval=interval,
                                csv_filename=csv_filename,
-                               log_interval=log_interval)
+                               log_interval=log_interval,
+                               enable_mem_freq_meas=enable_mem_freq_meas)
     monitor.monitor_power_and_freq()
 
 
 @contextlib.contextmanager
-def measure_power(csv_filename, interval=0.1, log_interval=1):
+def measure_power(csv_filename,
+                  interval=0.1,
+                  log_interval=1,
+                  enable_mem_freq_meas=False):
     process = multiprocessing.Process(target=start_nvml_monitor,
                                       args=(interval, csv_filename,
-                                            log_interval))
+                                            log_interval,
+                                            enable_mem_freq_meas))
     process.start()
     try:
         yield

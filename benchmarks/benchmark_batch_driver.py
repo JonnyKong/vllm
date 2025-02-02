@@ -29,19 +29,19 @@ def yield_benchmark_batch_args(skip_existing: bool = False):
         '/export2/kong102/energy_efficient_serving_results/request_timing/2025-01-29_benchmark-batch/A40-pp1-tp1/'
     )
 
-    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), 16)
     prefill_input_lens = [256, 1024]
     prefill_bss = [0, 1, 8]
     decode_input_lens = [256, 1024]
     decode_bss = [0, 8, 256]
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), 16)
 
-    for freq, prefill_input_len, prefill_bs, decode_input_len, decode_bs in \
+    for prefill_input_len, prefill_bs, decode_input_len, decode_bs, freq in \
             itertools.product(
-                test_freqs,
                 prefill_input_lens,
                 prefill_bss,
                 decode_input_lens,
                 decode_bss,
+                test_freqs,
             ):
         if prefill_bs == 0 and decode_bs == 0:
             continue
