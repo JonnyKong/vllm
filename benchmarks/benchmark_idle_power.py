@@ -3,20 +3,14 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-import torch
 from benchmark_batch_driver import uniform_sample_sorted
+from benchmark_utils import get_gpu_name, get_result_root
 
 from vllm.logger import init_logger
 from vllm.platforms.nvml_power_monitor import measure_power
 from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_set_freq
 
 logger = init_logger(__name__)
-
-
-def get_gpu_name():
-    if not torch.cuda.is_available():
-        raise RuntimeError('No GPU found')
-    return torch.cuda.get_device_name(0).replace('NVIDIA ', '')
 
 
 def measure_idle_power(freq_arr: List[int],
@@ -77,7 +71,5 @@ def calculate_mean_power(output_dir: Path):
 
 if __name__ == '__main__':
     freq_arr = uniform_sample_sorted(nvml_get_available_freq(), k=16)
-    output_dir = Path(
-        f'/export2/kong102/energy_efficient_serving_results/idle_power/{get_gpu_name()}'
-    )
+    output_dir = get_result_root() / 'idle_power' / get_gpu_name()
     measure_idle_power(freq_arr, output_dir)

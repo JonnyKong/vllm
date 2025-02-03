@@ -7,6 +7,7 @@ import random
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Dict, List
 
 import tqdm
@@ -41,6 +42,7 @@ def disable_python_gc():
     finally:
         if was_enabled:
             gc.enable()
+            gc.collect()
 
 
 @contextlib.contextmanager
@@ -69,7 +71,7 @@ class BenchmarkBatchParam:
     delay_time_s: float = 0.0  # Delay before issuing each batch.
 
     # Run terminates when both reaches
-    min_num_iters: int = 10
+    min_num_iters: int = 32
     min_seconds: int = 5
 
 
@@ -112,7 +114,7 @@ async def benchmark_batch(
             # affecting the cache hit rate
             requests = [
                 build_dummy_execute_model_request(llm, tokenizer, param)
-                for _ in range(param.min_num_iters * 4)
+                for _ in range(param.min_num_iters * 2)
             ]
             request_gen = cyclic_generator(requests)
 
@@ -148,7 +150,8 @@ async def benchmark_batch(
                         # Insert new req
                         virtual_engine = requests_in_progress.index(task)
                         req = next(request_gen)
-                        await asyncio.sleep(param.delay_time_s)
+                        if param.delay_time_s > 0:
+                            await asyncio.sleep(param.delay_time_s)
                         requests_in_progress[
                             virtual_engine] = asyncio.create_task(
                                 executor.execute_model_async(req))
@@ -188,6 +191,7 @@ def build_dummy_execute_model_request(
                                )
 
 
+@lru_cache(maxsize=16384)
 def build_dummy_seq_group_metadata(
     llm: AsyncLLMEngine,
     tokenizer: PreTrainedTokenizerBase,
