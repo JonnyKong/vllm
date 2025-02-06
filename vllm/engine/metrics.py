@@ -803,9 +803,22 @@ class PerfMetricCSVLogger(CSVLogger):
         'num_preemption_iter',
     ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Cumulative number of completed requests
+        self.num_completed_reqs = 0
+
     def log(self, stats: Stats) -> None:
         perf_dict = {field: getattr(stats, field) for field in self.FIELDS}
+
+        # Cumulative number of finished requests
+        self.num_completed_reqs += len(stats.request_id_requests)
+        perf_dict['num_completed_reqs'] = self.num_completed_reqs
+
+        # Request timings
         if stats.batch_execute_timing_iter:
             perf_dict |= {**stats.batch_execute_timing_iter.to_dict()}
+
         self.csv_buf.append(perf_dict)
         self.increment_counter_and_maybe_persist_to_disk()
