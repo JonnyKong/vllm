@@ -8,7 +8,7 @@ from benchmark_utils import (get_gpu_name, get_result_root,
                              uniform_sample_sorted)
 
 from vllm.logger import init_logger
-from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_set_freq
+from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_lock_freq
 
 logger = init_logger(__name__)
 
@@ -84,13 +84,13 @@ def run_once(log_dir: Path, req_rate: float):
 
 def main():
     expr_root = (get_result_root() / 'request_timing' /
-                 '2025-02-08_benchmark-serving-varying-freq')
+                 '2025-02-08_benchmark-serving-varying-freq_test')
     freq_arr = uniform_sample_sorted(nvml_get_available_freq(), 6)
     for req_rate in [5, 8]:
         for freq in freq_arr:
             log_dir = (expr_root /
                        f'{get_gpu_name()}_req-rate{req_rate}_freq{freq}')
-            with nvml_set_freq(freq):
+            with nvml_lock_freq(freq):
                 run_once(log_dir, req_rate)
 
 

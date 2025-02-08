@@ -8,7 +8,7 @@ from benchmark_utils import get_gpu_name, get_result_root
 
 from vllm.logger import init_logger
 from vllm.platforms.nvml_power_monitor import measure_power
-from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_set_freq
+from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_lock_freq
 
 logger = init_logger(__name__)
 
@@ -27,7 +27,7 @@ def measure_idle_power(freq_arr: List[int],
         logger.info('Measuring power at %d MHz, logging to %s', freq,
                     csv_filename)
 
-        with nvml_set_freq(freq), \
+        with nvml_lock_freq(freq), \
             measure_power(csv_filename,
                           interval=0.1,
                           log_interval=1,

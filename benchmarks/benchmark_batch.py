@@ -25,7 +25,7 @@ from vllm.entrypoints.openai.api_server import (
 from vllm.logger import init_logger
 from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.platforms.nvml_power_monitor import measure_power
-from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_set_freq
+from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_lock_freq
 from vllm.sequence import (ExecuteModelRequest, SequenceData,
                            SequenceGroupMetadata)
 from vllm.utils import FlexibleArgumentParser, cdiv, random_uuid
@@ -134,7 +134,7 @@ async def benchmark_batch(
             with disable_python_gc(), \
                     measure_power(energy_log), \
                     log_perf_metric(perf_log) as perf_metric_logger, \
-                    nvml_set_freq(param.gpu_freq_mhz):
+                    nvml_lock_freq(param.gpu_freq_mhz):
                 time_start = time.perf_counter()
                 iter = 0
                 while True:
