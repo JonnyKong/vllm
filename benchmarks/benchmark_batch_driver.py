@@ -3,25 +3,12 @@ import os
 
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
-from benchmark_utils import get_gpu_name, get_result_root
+from benchmark_utils import (get_gpu_name, get_result_root,
+                             uniform_sample_sorted)
 
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
-
-
-def uniform_sample_sorted(lst, k):
-    """
-    Selects `k` elements from the sorted input list as uniformly as possible,
-    ensuring the first and last elements are included.
-    """
-    if k < 2 or k > len(lst):
-        raise ValueError(
-            "k must be at least 2 and at most the length of the list")
-    lst = sorted(lst)
-    step = (len(lst) - 1) / (k - 1)
-    indices = sorted(set(round(i * step) for i in range(k)))
-    return [lst[i] for i in indices]
 
 
 def yield_benchmark_batch_args(pp: int = 1,
