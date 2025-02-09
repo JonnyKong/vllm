@@ -199,6 +199,7 @@ class EngineArgs:
     generation_config: Optional[str] = None
 
     log_dir: str = "./logs"
+    enable_freq_mod: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -959,6 +960,10 @@ class EngineArgs:
 
         parser.add_argument("--log-dir", default='./logs')
 
+        parser.add_argument('--enable-freq-mod',
+                            action='store_true',
+                            default=EngineArgs.enable_freq_mod)
+
         return parser
 
     @classmethod
@@ -1256,6 +1261,7 @@ class EngineArgs:
             compilation_config=self.compilation_config,
             kv_transfer_config=self.kv_transfer_config,
             log_dir=self.log_dir,
+            enable_freq_mod=self.enable_freq_mod,
         )
 
         if envs.VLLM_USE_V1:

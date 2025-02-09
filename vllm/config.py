@@ -2992,6 +2992,7 @@ class VllmConfig:
                                             init=True)  # type: ignore
     instance_id: str = ""
     log_dir: Optional[str] = None
+    enable_freq_mod: bool = False
 
     def compute_hash(self) -> str:
         """

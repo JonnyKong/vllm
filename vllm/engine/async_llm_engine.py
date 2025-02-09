@@ -417,6 +417,9 @@ class _AsyncLLMEngine(LLMEngine):
                 self._process_model_outputs(ctx=ctx)
             assert len(ctx.output_queue) == 0
 
+        if self.freq_modulator:
+            self.freq_modulator.step()
+
         return ctx.request_outputs
 
     async def stop_remote_worker_execution_loop_async(self) -> None:

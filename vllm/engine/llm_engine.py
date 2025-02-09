@@ -45,6 +45,7 @@ from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
+from vllm.platforms.nvml_freq_modulator import NvmlFreqModulator
 from vllm.platforms.nvml_power_monitor import start_nvml_monitor
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
@@ -402,6 +403,11 @@ class LLMEngine:
                 },
                 daemon=True)
             self.power_monitor_process.start()
+
+        self.freq_modulator: Optional[NvmlFreqModulator] = None
+        if vllm_config.enable_freq_mod:
+            self.freq_modulator = NvmlFreqModulator.create_from_config(
+                vllm_config, self)
 
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:
@@ -1492,6 +1498,9 @@ class LLMEngine:
             # queued control plane messages, such as add/remove lora adapters.
             logger.debug("Stopping remote worker execution loop.")
             self.model_executor.stop_remote_worker_execution_loop()
+
+        if self.freq_modulator:
+            self.freq_modulator.step()
 
         return ctx.request_outputs
 

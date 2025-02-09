@@ -39,7 +39,7 @@ def nvml_lock_freq(freq):
     with _nvml_freq_lock:  # Ensure thread safety
         if _nvml_freq_active:
             raise RuntimeError(
-                "nvml_lock_freq is already active in another thread!")
+                'nvml_lock_freq is already active in another thread!')
 
         _nvml_freq_active = True
 
@@ -47,14 +47,14 @@ def nvml_lock_freq(freq):
     try:
         for handle in handles:
             pynvml.nvmlDeviceSetGpuLockedClocks(handle, freq, freq)
-        logger.info("Locking GPU freq at %d MHz ...", freq)
+        logger.info('Locking GPU freq at %d MHz ...', freq)
         yield
     finally:
         for handle in handles:
             pynvml.nvmlDeviceResetGpuLockedClocks(handle)
         with _nvml_freq_lock:
             _nvml_freq_active = False
-        logger.info("Resetting GPU freq ...")
+        logger.info('Resetting GPU freq ...')
 
 
 def nvml_set_freq(freq):
@@ -67,19 +67,19 @@ def nvml_set_freq(freq):
     with _nvml_freq_lock:
         if _nvml_freq_active:
             raise RuntimeError(
-                "Cannot set GPU frequency while nvml_lock_freq is active!")
+                'Cannot set GPU frequency while nvml_lock_freq is active!')
 
     handles = _get_gpu_handles()
     for handle in handles:
         pynvml.nvmlDeviceSetGpuLockedClocks(handle, freq, freq)
-    logger.info("Set GPU freq to %d MHz.", freq)
+    logger.info('Set GPU freq to %d MHz.', freq)
 
 
 def _get_gpu_handles():
     pynvml.nvmlInit()
-    cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES")
+    cuda_visible_devices = os.getenv('CUDA_VISIBLE_DEVICES')
     if cuda_visible_devices:
-        gpu_indices = [int(i) for i in cuda_visible_devices.split(",")]
+        gpu_indices = [int(i) for i in cuda_visible_devices.split(',')]
     else:
         gpu_indices = list(range(pynvml.nvmlDeviceGetCount()))
     return [pynvml.nvmlDeviceGetHandleByIndex(i) for i in gpu_indices]
