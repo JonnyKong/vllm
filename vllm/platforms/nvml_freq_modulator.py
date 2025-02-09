@@ -2,9 +2,8 @@
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional
 
+from vllm.config import VllmConfig
 from vllm.platforms.nvml_utils import nvml_set_freq
 
 
@@ -13,14 +12,14 @@ class NvmlFreqModulator(ABC):
     Base class for a GPU frequency modulator using NVML. Adjusts the GPU
     frequency at specified intervals by invoking the `adjust` method, which
     must be implemented by subclasses.
+
+    TODO: adjust each GPU separately.
     '''
 
-    def __init__(self, llm_engine: Any, interval_s: float) -> None:
+    def __init__(self, llm_engine, interval_s: float) -> None:
         self.llm_engine = llm_engine
         self.interval_s = interval_s
         self.last_adjustment_time = time.perf_counter()
-        self.executor: Optional[
-            ThreadPoolExecutor] = None  # Lazy initialization
 
     def step(self) -> None:
         current_time = time.perf_counter()
@@ -31,9 +30,9 @@ class NvmlFreqModulator(ABC):
                 loop.call_soon_threadsafe(asyncio.create_task,
                                           self.set_freq_async(freq))
             except RuntimeError:
-                if self.executor is None:
-                    self.executor = ThreadPoolExecutor(max_workers=1)
-                self.executor.submit(asyncio.run, self.set_freq_async(freq))
+                # Entering here means we are in a non-async context, and not
+                # nested inside another event loop
+                asyncio.run(self.set_freq_async(freq))
             self.last_adjustment_time = current_time
 
     @abstractmethod
@@ -44,8 +43,8 @@ class NvmlFreqModulator(ABC):
         await asyncio.to_thread(nvml_set_freq, frequency)
 
     @staticmethod
-    def create_from_config(config: Any,
-                           llm_engine: Any) -> 'NvmlFreqModulator':
+    def create_from_config(config: VllmConfig,
+                           llm_engine) -> 'NvmlFreqModulator':
         '''
         Factory method to create an NvmlFreqModulator instance from a
         VllmConfig. Currently, always returns a RuleBasedNvmlFreqModulator.
@@ -59,7 +58,7 @@ class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
     based on the fraction of active tasks in the scheduler.
     '''
 
-    def __init__(self, llm_engine: Any, interval_s: float) -> None:
+    def __init__(self, llm_engine, interval_s: float) -> None:
         super().__init__(llm_engine, interval_s)
 
     frequency_table = {
