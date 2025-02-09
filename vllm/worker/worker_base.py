@@ -385,7 +385,11 @@ class LocalOrDistributedWorkerBase(WorkerBase):
     ) -> Optional[List[SamplerOutput]]:
         """Executes at least one model step on the given sequences, unless no
         sequences are provided."""
+        timing_events = [
+            torch.cuda.Event(enable_timing=True) for _ in range(4)
+        ]
         start_time = time.perf_counter()
+        timing_events[0].record()
 
         inputs = self.prepare_input(execute_model_req)
         if inputs is None:
@@ -395,7 +399,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         num_steps = worker_input.num_steps
 
         self.execute_worker(worker_input)
-        start_recv_time = time.perf_counter()
+        timing_events[1].record()
 
         # If there is no input, we don't need to execute the model.
         if worker_input.num_seq_groups == 0:
@@ -413,7 +417,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     "model_execute_time", torch.tensor(0)).item()
 
         # Time finished receiving intermediate tensors and start inference
-        start_inf_time = time.perf_counter()
+        timing_events[2].record()
 
         output = self.model_runner.execute_model(
             model_input=model_input,
@@ -428,10 +432,16 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         collect_model_execute_time = (
             self.observability_config is not None
             and self.observability_config.collect_model_execute_time)
+        timing_events[3].record()
         if collect_model_execute_time:
             torch.cuda.synchronize()
-            end_time = time.perf_counter()
-        model_execute_time = time.perf_counter() - start_time
+        start_recv_time = start_time + (
+            timing_events[0].elapsed_time(timing_events[1]) / 1000)
+        start_inf_time = start_time + (
+            timing_events[0].elapsed_time(timing_events[2]) / 1000)
+        model_execute_time = (timing_events[0].elapsed_time(timing_events[3]) /
+                              1000)
+        end_time = start_time + model_execute_time
         if not get_pp_group().is_last_rank:
             # output is IntermediateTensors
             assert isinstance(output, IntermediateTensors)
