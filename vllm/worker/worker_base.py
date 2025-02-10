@@ -461,7 +461,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 # Append timing of stage N-1
                 output.tensors[
                     f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor([
-                        start_time, start_swap_time, start_recv_time, start_inf_time, end_time
+                        start_time, start_swap_time, start_recv_time,
+                        start_inf_time, end_time
                     ])
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
@@ -476,7 +477,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                         f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
                     stage_execute_timestamp = [
-                        start_time, start_swap_time, start_recv_time, start_inf_time, end_time
+                        start_time, start_swap_time, start_recv_time,
+                        start_inf_time, end_time
                     ]
                 time_range = TimeRange(*stage_execute_timestamp)
                 time_ranges.append(time_range)

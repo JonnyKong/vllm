@@ -115,7 +115,7 @@ class BatchExecuteTiming:
         for i, r in enumerate(self.time_ranges):
             ret |= {
                 f'pp_rank_{i}_start': r.start,
-                f'pp_rank_{i}_start_swap' : r.start_swap,
+                f'pp_rank_{i}_start_swap': r.start_swap,
                 f'pp_rank_{i}_start_recv': r.start_recv,
                 f'pp_rank_{i}_start_inf': r.start_inf,
                 f'pp_rank_{i}_end': r.end,
