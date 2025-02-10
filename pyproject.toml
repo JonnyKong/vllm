@@ -4,6 +4,7 @@ requires = [
     "cmake>=3.26",
     "ninja",
     "packaging",
+    "pynvml",
     "setuptools>=61",
     "setuptools-scm>=8.0",
     "torch == 2.5.1",
