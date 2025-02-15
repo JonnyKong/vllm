@@ -206,6 +206,7 @@ class EngineArgs:
     log_dir: str = "./logs"
     enable_freq_mod: bool = False
     enable_idle_time_injection: bool = False
+    freq_mod_mode: Optional[str] = None
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -994,6 +995,11 @@ class EngineArgs:
                             action='store_true',
                             default=EngineArgs.enable_freq_mod)
 
+        parser.add_argument('--freq-mod-mode',
+                            type=str,
+                            choices=['rule', 'value-iter'],
+                            default=EngineArgs.freq_mod_mode)
+
         parser.add_argument('--enable-idle-time-injection',
                             action='store_true',
                             default=EngineArgs.enable_idle_time_injection)
@@ -1306,6 +1312,7 @@ class EngineArgs:
             log_dir=self.log_dir,
             enable_freq_mod=self.enable_freq_mod,
             enable_idle_time_injection=self.enable_idle_time_injection,
+            freq_mod_mode=self.freq_mod_mode,
         )
 
         if envs.VLLM_USE_V1:
