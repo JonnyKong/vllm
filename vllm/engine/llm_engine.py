@@ -21,6 +21,7 @@ import vllm.envs as envs
 from vllm.config import (DecodingConfig, LoRAConfig, ModelConfig,
                          ObservabilityConfig, ParallelConfig, SchedulerConfig,
                          VllmConfig)
+from vllm.core.idle_time_injector import IdleTimeInjector
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
 from vllm.engine.arg_utils import EngineArgs
@@ -407,6 +408,11 @@ class LLMEngine:
         self.freq_modulator: Optional[NvmlFreqModulator] = None
         if vllm_config.enable_freq_mod:
             self.freq_modulator = NvmlFreqModulator.create_from_config(
+                vllm_config, self)
+
+        self.idle_time_injector: Optional[IdleTimeInjector] = None
+        if vllm_config.enable_idle_time_injection:
+            self.idle_time_injector = IdleTimeInjector.create_from_config(
                 vllm_config, self)
 
         self.tracer = None
@@ -1412,6 +1418,10 @@ class LLMEngine:
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
+
+            if self.idle_time_injector:
+                execute_model_req.idle_time = \
+                    self.idle_time_injector.get_idle_time()
 
             outputs = self.model_executor.execute_model(
                 execute_model_req=execute_model_req)

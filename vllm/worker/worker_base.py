@@ -386,7 +386,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         """Executes at least one model step on the given sequences, unless no
         sequences are provided."""
         timing_events = [
-            torch.cuda.Event(enable_timing=True) for _ in range(4)
+            torch.cuda.Event(enable_timing=True) for _ in range(6)
         ]
         start_time = time.perf_counter()
         timing_events[0].record()
@@ -394,12 +394,13 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         inputs = self.prepare_input(execute_model_req)
         if inputs is None:
             return None
-
         model_input, worker_input, kwargs = inputs
         num_steps = worker_input.num_steps
 
-        self.execute_worker(worker_input)
         timing_events[1].record()
+
+        self.execute_worker(worker_input)
+        timing_events[2].record()
 
         # If there is no input, we don't need to execute the model.
         if worker_input.num_seq_groups == 0:
@@ -417,7 +418,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     "model_execute_time", torch.tensor(0)).item()
 
         # Time finished receiving intermediate tensors and start inference
-        timing_events[2].record()
+        timing_events[3].record()
 
         output = self.model_runner.execute_model(
             model_input=model_input,
@@ -429,19 +430,27 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         )
 
         end_time: float = 0.0
+
         collect_model_execute_time = (
             self.observability_config is not None
             and self.observability_config.collect_model_execute_time)
-        timing_events[3].record()
+        timing_events[4].record()
+        if self.vllm_config.enable_idle_time_injection and execute_model_req:
+            time.sleep(execute_model_req.idle_time)
+        timing_events[5].record()
         if collect_model_execute_time:
             torch.cuda.synchronize()
-        start_recv_time = start_time + (
+        start_swap_time = start_time + (
             timing_events[0].elapsed_time(timing_events[1]) / 1000)
-        start_inf_time = start_time + (
+        start_recv_time = start_time + (
             timing_events[0].elapsed_time(timing_events[2]) / 1000)
-        model_execute_time = (timing_events[0].elapsed_time(timing_events[3]) /
+        start_inf_time = start_time + (
+            timing_events[0].elapsed_time(timing_events[3]) / 1000)
+        model_execute_time = (timing_events[0].elapsed_time(timing_events[4]) /
                               1000)
         end_time = start_time + model_execute_time
+        idle_time = start_time + (
+            timing_events[0].elapsed_time(timing_events[5]) / 1000)
         if not get_pp_group().is_last_rank:
             # output is IntermediateTensors
             assert isinstance(output, IntermediateTensors)
@@ -458,7 +467,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 # Append timing of stage N-1
                 output.tensors[
                     f"stage_execute_timestamp_rank{pp_rank}"] = torch.tensor([
-                        start_time, start_recv_time, start_inf_time, end_time
+                        start_time, start_swap_time, start_recv_time,
+                        start_inf_time, end_time, idle_time
                     ])
             get_pp_group().send_tensor_dict(output.tensors,
                                             all_gather_group=get_tp_group())
@@ -473,7 +483,8 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                         f"stage_execute_timestamp_rank{rank}"].tolist()
                 else:
                     stage_execute_timestamp = [
-                        start_time, start_recv_time, start_inf_time, end_time
+                        start_time, start_swap_time, start_recv_time,
+                        start_inf_time, end_time, idle_time
                     ]
                 time_range = TimeRange(*stage_execute_timestamp)
                 time_ranges.append(time_range)

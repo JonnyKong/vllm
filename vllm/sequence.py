@@ -97,9 +97,11 @@ class SequenceStage(enum.Enum):
 @dataclass
 class TimeRange:
     start: float
+    start_swap: float
     start_recv: float
     start_inf: float
     end: float
+    idle: float
 
 
 @dataclass
@@ -114,9 +116,11 @@ class BatchExecuteTiming:
         for i, r in enumerate(self.time_ranges):
             ret |= {
                 f'pp_rank_{i}_start': r.start,
+                f'pp_rank_{i}_start_swap': r.start_swap,
                 f'pp_rank_{i}_start_recv': r.start_recv,
                 f'pp_rank_{i}_start_inf': r.start_inf,
                 f'pp_rank_{i}_end': r.end,
+                f'pp_rank_{i}_idle': r.idle,
             }
         return ret
 
@@ -1339,6 +1343,8 @@ class ExecuteModelRequest(
     last_sampled_token_ids: Optional[torch.Tensor] = None
     # Async callback
     async_callback: Optional[Callable] = None
+    # Idle time injection
+    idle_time: float = 0
 
     @property
     def is_first_multi_step(self) -> bool:
