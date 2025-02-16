@@ -3066,6 +3066,7 @@ class VllmConfig:
     log_dir: Optional[str] = None
     enable_freq_mod: bool = False
     freq_mod_mode: Optional[str] = None
+    enable_idle_time_injection: bool = False
 
     def compute_hash(self) -> str:
         """

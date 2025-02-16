@@ -205,6 +205,7 @@ class EngineArgs:
 
     log_dir: str = "./logs"
     enable_freq_mod: bool = False
+    enable_idle_time_injection: bool = False
     freq_mod_mode: Optional[str] = None
 
     def __post_init__(self):
@@ -999,6 +1000,10 @@ class EngineArgs:
                             choices=['rule', 'value-iter'],
                             default=EngineArgs.freq_mod_mode)
 
+        parser.add_argument('--enable-idle-time-injection',
+                            action='store_true',
+                            default=EngineArgs.enable_idle_time_injection)
+
         return parser
 
     @classmethod
@@ -1306,6 +1311,7 @@ class EngineArgs:
             kv_transfer_config=self.kv_transfer_config,
             log_dir=self.log_dir,
             enable_freq_mod=self.enable_freq_mod,
+            enable_idle_time_injection=self.enable_idle_time_injection,
             freq_mod_mode=self.freq_mod_mode,
         )
 
