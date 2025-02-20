@@ -415,6 +415,9 @@ class LLMEngine:
             self.idle_time_injector = IdleTimeInjector.create_from_config(
                 vllm_config, self)
 
+        self.enable_circuit_breaker: bool = vllm_config.enable_circuit_breaker
+        self.is_tripped: bool = False
+
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:
             self.tracer = init_tracer(

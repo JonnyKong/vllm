@@ -6,8 +6,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import pandas as pd
-
 from vllm.config import VllmConfig
 from vllm.platforms.nvml_utils import nvml_set_freq
 
@@ -115,6 +113,10 @@ class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
         self.log_file = log_file
         self.data_log: List[Tuple[float, float, int, float]] = []
         self.previous_state: Optional[float] = None
+        self.iteration = 0  # Counter for periodic logging
+
+        self.log_file_handle = open(log_file, 'w')  # noqa
+        self.log_file_handle.write("timestamp,state,action,next_state\n")
 
     def adjust(self) -> int:
         running_tasks = len(self.llm_engine.scheduler[0].running)
@@ -122,34 +124,32 @@ class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
         state = running_tasks / max_tasks if max_tasks > 0 else 0
         timestamp = time.perf_counter()
 
-        if self.previous_state:
+        if self.previous_state is not None and not self.llm_engine.is_tripped:
+            # The state transition model assumes a specific request arrival
+            # rate. When the circuit breaker is tripped, the request rate is 0,
+            # so stop logging data
             self.data_log.append(
                 (timestamp, self.previous_state, self.current_freq, state))
 
         self.current_freq = self._select_action(state)
-
         self.previous_state = state
+
+        # Periodically save every N iterations
+        if self.iteration % 5 == 0 and self.data_log:
+            self._save_incremental()
 
         return self.current_freq
 
     def _select_action(self, state: float) -> int:
-        """
-        Selects the next GPU frequency action.
-        
-        If the running queue's utilization exceeds 90%, it selects the highest
-        available frequency to prevent the system from entering an overloaded
-        state. Otherwise, it selects a frequency randomly from the available
-        options.
-        """
-        if state > 0.9:
-            return max(self.frequency_list)
         return random.choice(self.frequency_list)
 
-    def save_data(self) -> None:
-        df = pd.DataFrame(
-            self.data_log,
-            columns=['timestamp', 'state', 'action', 'next_state'])
-        df.to_csv(self.log_file, index=False)
+    def _save_incremental(self) -> None:
+        self.log_file_handle.writelines(
+            f"{ts},{prev_state},{action},{next_state}\n"
+            for ts, prev_state, action, next_state in self.data_log)
+        self.log_file_handle.flush()
+        self.data_log.clear()
 
     def __del__(self):
-        self.save_data()
+        """ Ensure the file handle is closed properly on object destruction. """
+        self.log_file_handle.close()
