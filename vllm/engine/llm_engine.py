@@ -393,8 +393,10 @@ class LLMEngine:
                 }
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
-
-        self.power_usage_queue = multiprocessing.SimpleQueue()
+        if vllm_config.freq_mod_mode == 'q-learn':
+            self.power_usage_queue = multiprocessing.SimpleQueue()
+        else:
+            self.power_usage_queue = None
         self.power_monitor_process: Optional[multiprocessing.Process] = None
         if self.observability_config.collect_power_usage:
             self.power_monitor_process = multiprocessing.Process(
