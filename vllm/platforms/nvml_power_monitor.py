@@ -4,7 +4,8 @@ import csv
 import multiprocessing
 import os
 import time
-from typing import List
+from typing import List, Optional
+from collections import deque
 
 import pynvml
 
@@ -19,13 +20,16 @@ class NvmlPowerMonitor:
                  interval: float,
                  csv_filename: str,
                  log_interval: float,
-                 enable_mem_freq_meas: bool = False):
+                 enable_mem_freq_meas: bool = False,
+                 power_queue: Optional[multiprocessing.SimpleQueue] = None):
         self.interval = interval
         self.csv_filename = csv_filename
         self.log_interval = log_interval
         self.enable_mem_freq_meas = enable_mem_freq_meas
         self.logs: List[List[float]] = []
         self.stop_monitoring = False
+        self.power_queue = power_queue
+        self.power_readings = deque(maxlen=100)
 
     def monitor_power_and_freq(self):
         pynvml.nvmlInit()
@@ -62,17 +66,25 @@ class NvmlPowerMonitor:
             while not self.stop_monitoring:
                 timestamp = time.perf_counter()
                 readings = [timestamp]
+                total_power = 0
                 for handle in handles:
                     power_usage = pynvml.nvmlDeviceGetPowerUsage(
                         handle) / 1000.0
                     freq = pynvml.nvmlDeviceGetClockInfo(
                         handle, pynvml.NVML_CLOCK_GRAPHICS)
                     readings.extend([power_usage, freq])
+                    total_power += power_usage
                     if self.enable_mem_freq_meas:
                         mem_freq = pynvml.nvmlDeviceGetClockInfo(
                             handle, pynvml.NVML_CLOCK_MEM)
                         readings.append(mem_freq)
+                
                 self.logs.append(readings)
+                self.power_readings.append(total_power)
+
+                if self.power_queue is not None:
+                    avg_power = sum(self.power_readings) / len(self.power_readings)
+                    self.power_queue.put(avg_power)
 
                 if timestamp - last_log_time >= self.log_interval:
                     self._write_logs_to_csv()
@@ -98,11 +110,13 @@ class NvmlPowerMonitor:
 def start_nvml_monitor(interval: float,
                        csv_filename: str,
                        log_interval=1,
-                       enable_mem_freq_meas=False):
+                       enable_mem_freq_meas=False,
+                       power_queue: Optional[multiprocessing.SimpleQueue] = None):
     monitor = NvmlPowerMonitor(interval=interval,
                                csv_filename=csv_filename,
                                log_interval=log_interval,
-                               enable_mem_freq_meas=enable_mem_freq_meas)
+                               enable_mem_freq_meas=enable_mem_freq_meas,
+                               power_queue=power_queue)
     monitor.monitor_power_and_freq()
 
 
@@ -110,14 +124,17 @@ def start_nvml_monitor(interval: float,
 def measure_power(csv_filename,
                   interval=0.1,
                   log_interval=1,
-                  enable_mem_freq_meas=False):
+                  enable_mem_freq_meas=False,
+                  power_queue: Optional[multiprocessing.SimpleQueue] = None):
+
     process = multiprocessing.Process(target=start_nvml_monitor,
                                       args=(interval, csv_filename,
                                             log_interval,
-                                            enable_mem_freq_meas))
+                                            enable_mem_freq_meas,
+                                            power_queue))
     process.start()
     try:
-        yield
+        yield power_queue
     finally:
         process.terminate()
         process.join()
