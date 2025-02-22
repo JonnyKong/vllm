@@ -997,7 +997,7 @@ class EngineArgs:
 
         parser.add_argument('--freq-mod-mode',
                             type=str,
-                            choices=['rule', 'value-iter'],
+                            choices=['rule', 'value-iter', 'q-learn'],
                             default=EngineArgs.freq_mod_mode)
 
         parser.add_argument('--enable-idle-time-injection',
