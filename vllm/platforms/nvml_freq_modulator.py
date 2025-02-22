@@ -4,10 +4,13 @@ import random
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from vllm.config import VllmConfig
+from vllm.logger import init_logger
 from vllm.platforms.nvml_utils import nvml_set_freq
+
+logger = init_logger(__name__)
 
 
 class NvmlFreqModulator(ABC):
@@ -69,6 +72,24 @@ class NvmlFreqModulator(ABC):
             raise NotImplementedError(
                 f'Unrecognized freq_mod_mode: {llm_engine.freq_mod_mode}')
 
+    def get_sys_stats(self) -> Dict[str, float]:
+        """
+        Extract states potentially usable by RL.
+        """
+        return {
+            'running_req_cnt':
+            sum(len(s.running) for s in self.llm_engine.scheduler),
+            'running_req_max':
+            sum(s.scheduler_config.max_num_seqs
+                for s in self.llm_engine.scheduler),
+            'waiting_req_cnt':
+            sum(len(s.waiting) for s in self.llm_engine.scheduler),
+            'waiting_token_cnt':
+            sum(r.first_seq.get_prompt_len()
+                for scheduler in self.llm_engine.scheduler
+                for r in scheduler.waiting),
+        }
+
 
 class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
     '''
@@ -87,9 +108,9 @@ class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
     }
 
     def adjust(self) -> int:
-        running_tasks = len(self.llm_engine.scheduler[0].running)
-        max_tasks = self.llm_engine.scheduler[0].scheduler_config.max_num_seqs
-        fraction = running_tasks / max_tasks if max_tasks > 0 else 0
+        sys_stats = self.get_sys_stats()
+
+        fraction = sys_stats['running_req_cnt'] / sys_stats['running_req_max']
 
         for (low, high), freq in self.frequency_table.items():
             if low <= fraction < high:
@@ -119,9 +140,12 @@ class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
         self.log_file_handle.write("timestamp,state,action,next_state\n")
 
     def adjust(self) -> int:
-        running_tasks = len(self.llm_engine.scheduler[0].running)
-        max_tasks = self.llm_engine.scheduler[0].scheduler_config.max_num_seqs
-        state = running_tasks / max_tasks if max_tasks > 0 else 0
+        sys_stats = self.get_sys_stats()
+        logger.debug('sys_stats: %s', str(sys_stats))
+
+        # State is running queue util
+        state = sys_stats['running_req_cnt'] / sys_stats['running_req_max']
+
         timestamp = time.perf_counter()
 
         if self.previous_state is not None and not self.llm_engine.is_tripped:

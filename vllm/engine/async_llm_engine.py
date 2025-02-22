@@ -938,10 +938,10 @@ class AsyncLLMEngine(EngineClient):
                                   for scheduler in self.engine.scheduler)
             running_util = num_running / num_running_max
 
-            if not self.engine.is_tripped and running_util > 0.9:
+            if not self.engine.is_tripped and running_util > 0.99:
                 self.engine.is_tripped = True
                 logger.info("Circuit breaker tripped")
-            elif self.engine.is_tripped and running_util < 0.2:
+            elif self.engine.is_tripped and running_util < 0.05:
                 self.engine.is_tripped = False
                 logger.info("Circuit breaker reset")
         if self.engine.is_tripped:
