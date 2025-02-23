@@ -217,14 +217,19 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
     def adjust(self) -> int:
         running_tasks = len(self.llm_engine.scheduler[0].running)
         max_tasks = self.llm_engine.scheduler[0].scheduler_config.max_num_seqs
-        state = math.ceil(running_tasks / max_tasks * 10) / 10 if max_tasks > 0 else 0  # state is how full is the running queue in increments of 0.1
+        
+        # state is how full is the running queue in increments of 0.1
+        state = math.ceil(running_tasks / max_tasks * 10) / 10 if max_tasks > 0 else 0
 
         mean_power_usage = 0
         while not self.power_usage_queue.empty():
-            mean_power_usage = self.power_usage_queue.get()     # takes the latest value only
+            # takes the latest value only
+            mean_power_usage = self.power_usage_queue.get()     
 
-        power_reward = 1 - mean_power_usage / 300       # TODO, change 300 to the max power usage of the GPU
-        wait_queue_penalty = -1 if len(self.llm_engine.scheduler[0].waiting) > 0 else 0  # TODO, check if penalty should be higher or lower
+        # TODO, change 300 to the max power usage of the GPU
+        power_reward = 1 - mean_power_usage / 300       
+        # TODO, check if penalty should be higher or lower
+        wait_queue_penalty = -1 if len(self.llm_engine.scheduler[0].waiting) > 0 else 0  
 
         if self.previous_state is not None and self.previous_action is not None:
             reward = power_reward + wait_queue_penalty                              #reward function
@@ -233,9 +238,8 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         action = self._select_action(state)
         self.previous_state = state
         self.previous_action = action
-
         return action
-
+        
     def _select_action(self, state: float) -> int:
         if random.uniform(0, 1) < self.epsilon:
             return random.choice(self.frequency_list)  # Explore
