@@ -394,6 +394,10 @@ class LLMEngine:
                 self.stat_loggers["prometheus"].info("cache_config",
                                                      self.cache_config)
 
+        if vllm_config.freq_mod_mode == 'q-learn':
+            self.power_usage_queue = multiprocessing.SimpleQueue()
+        else:
+            self.power_usage_queue = None
         self.power_monitor_process: Optional[multiprocessing.Process] = None
         if self.observability_config.collect_power_usage:
             self.power_monitor_process = multiprocessing.Process(
@@ -401,6 +405,7 @@ class LLMEngine:
                 kwargs={
                     'interval': 0.01,
                     'csv_filename': f"{vllm_config.log_dir}/power_log.csv",
+                    'power_queue': self.power_usage_queue,
                 },
                 daemon=True)
             self.power_monitor_process.start()
