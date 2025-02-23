@@ -134,7 +134,7 @@ def measure_power(csv_filename,
                                             power_queue))
     process.start()
     try:
-        yield power_queue
+        yield
     finally:
         process.terminate()
         process.join()
