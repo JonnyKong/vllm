@@ -4,8 +4,8 @@ import csv
 import multiprocessing
 import os
 import time
-from typing import List, Optional
 from collections import deque
+from typing import List, Optional
 
 import pynvml
 
@@ -78,12 +78,13 @@ class NvmlPowerMonitor:
                         mem_freq = pynvml.nvmlDeviceGetClockInfo(
                             handle, pynvml.NVML_CLOCK_MEM)
                         readings.append(mem_freq)
-                
+
                 self.logs.append(readings)
                 self.power_readings.append(total_power)
 
                 if self.power_queue is not None:
-                    avg_power = sum(self.power_readings) / len(self.power_readings)
+                    avg_power = sum(self.power_readings) / len(
+                        self.power_readings)
                     self.power_queue.put(avg_power)
 
                 if timestamp - last_log_time >= self.log_interval:
@@ -107,11 +108,12 @@ class NvmlPowerMonitor:
             self.logs = []
 
 
-def start_nvml_monitor(interval: float,
-                       csv_filename: str,
-                       log_interval=1,
-                       enable_mem_freq_meas=False,
-                       power_queue: Optional[multiprocessing.SimpleQueue] = None):
+def start_nvml_monitor(
+        interval: float,
+        csv_filename: str,
+        log_interval=1,
+        enable_mem_freq_meas=False,
+        power_queue: Optional[multiprocessing.SimpleQueue] = None):
     monitor = NvmlPowerMonitor(interval=interval,
                                csv_filename=csv_filename,
                                log_interval=log_interval,
@@ -129,8 +131,7 @@ def measure_power(csv_filename,
 
     process = multiprocessing.Process(target=start_nvml_monitor,
                                       args=(interval, csv_filename,
-                                            log_interval,
-                                            enable_mem_freq_meas,
+                                            log_interval, enable_mem_freq_meas,
                                             power_queue))
     process.start()
     try:
