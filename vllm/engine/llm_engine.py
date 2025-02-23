@@ -1624,6 +1624,9 @@ class LLMEngine:
             len(scheduler.swapped) for scheduler in self.scheduler)
         num_waiting_sys = sum(
             len(scheduler.waiting) for scheduler in self.scheduler)
+        num_waiting_tokens_sys = sum(r.first_seq.get_len()
+                                     for scheduler in self.scheduler
+                                     for r in scheduler.waiting)
         scheduler_time = (scheduler_outputs.scheduler_time
                           if scheduler_outputs else 0.0)
         process_model_outputs_time = (
@@ -1845,6 +1848,7 @@ class LLMEngine:
             num_running_sys=num_running_sys,
             num_swapped_sys=num_swapped_sys,
             num_waiting_sys=num_waiting_sys,
+            num_waiting_tokens_sys=num_waiting_tokens_sys,
             #   KV Cache Usage in %
             gpu_cache_usage_sys=gpu_cache_usage_sys,
             cpu_cache_usage_sys=cpu_cache_usage_sys,
