@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import multiprocessing
 import math
+import pandas as pd
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
