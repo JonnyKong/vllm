@@ -746,6 +746,7 @@ class PerfMetricCSVLogger(CSVLogger):
         'num_running_sys',
         'num_waiting_sys',
         'num_swapped_sys',
+        'num_waiting_tokens_sys',
         'gpu_cache_usage_sys',
         'cpu_cache_usage_sys',
         'cpu_prefix_cache_hit_rate',

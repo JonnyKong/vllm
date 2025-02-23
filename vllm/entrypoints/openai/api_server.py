@@ -151,6 +151,12 @@ async def build_async_engine_client_from_engine_args(
     Returns the Client or None if the creation failed.
     """
 
+    if engine_args.enable_circuit_breaker:
+        assert disable_frontend_multiprocessing, (
+            'enable_circuit_breaker only works with AsyncLLMEngine (but '
+            'not MQLLMEngine), which requires '
+            '--disable-frontend-multiprocessing')
+
     # AsyncLLMEngine.
     if (MQLLMEngineClient.is_unsupported_config(engine_args)
             or envs.VLLM_USE_V1 or disable_frontend_multiprocessing):

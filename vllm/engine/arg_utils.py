@@ -205,8 +205,9 @@ class EngineArgs:
 
     log_dir: str = "./logs"
     enable_freq_mod: bool = False
-    enable_idle_time_injection: bool = False
     freq_mod_mode: Optional[str] = None
+    enable_idle_time_injection: bool = False
+    enable_circuit_breaker: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -1004,6 +1005,10 @@ class EngineArgs:
                             action='store_true',
                             default=EngineArgs.enable_idle_time_injection)
 
+        parser.add_argument('--enable-circuit-breaker',
+                            action='store_true',
+                            default=EngineArgs.enable_circuit_breaker)
+
         return parser
 
     @classmethod
@@ -1311,8 +1316,9 @@ class EngineArgs:
             kv_transfer_config=self.kv_transfer_config,
             log_dir=self.log_dir,
             enable_freq_mod=self.enable_freq_mod,
-            enable_idle_time_injection=self.enable_idle_time_injection,
             freq_mod_mode=self.freq_mod_mode,
+            enable_idle_time_injection=self.enable_idle_time_injection,
+            enable_circuit_breaker=self.enable_circuit_breaker,
         )
 
         if envs.VLLM_USE_V1:
