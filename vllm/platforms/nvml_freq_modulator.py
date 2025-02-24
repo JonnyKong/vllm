@@ -220,7 +220,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         self.frequency_list = freq_choices
         self.current_freq = max(freq_choices)
         self.log_file = log_file
-        self.q_table = {}
+        self.q_table: Dict[float, Dict[int, float]] = {}
         self.initialize_q_table(0)
         self.load_q_table()
         self.alpha = alpha  # Learning rate
@@ -273,7 +273,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         state_actions = self.q_table.get(state, {})
         if not state_actions:
             return random.choice(self.frequency_list)
-        return max(state_actions, key=state_actions.get)
+        return max(state_actions, key=lambda x: state_actions[x])
 
     def _update_q_table(self, state: float, action: int, reward: float,
                         next_state: float) -> None:
@@ -285,7 +285,8 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         next_state_actions = self.q_table.get(
             next_state, {freq: 0
                          for freq in self.frequency_list})
-        best_next_action = max(next_state_actions, key=next_state_actions.get)
+        best_next_action = max(next_state_actions,
+                               key=lambda x: float(next_state_actions[x]))
         td_target = reward + self.gamma * next_state_actions[best_next_action]
         td_error = td_target - state_actions[action]
         state_actions[action] += self.alpha * td_error
@@ -298,7 +299,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                 for freq in self.frequency_list
             }
         self.q_table[1.0] = {
-            freq: -1
+            freq: 0
             for freq in [1740]
         }  # only the highest frequency is allowed when the queue is full
 
@@ -338,5 +339,3 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
 
     def __del__(self):
         self.save_data()
-        """ Ensure the file handle is closed properly on object destruction. """
-        self.log_file_handle.close()

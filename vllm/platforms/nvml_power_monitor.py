@@ -29,7 +29,7 @@ class NvmlPowerMonitor:
         self.logs: List[List[float]] = []
         self.stop_monitoring = False
         self.power_queue = power_queue
-        self.power_readings = deque(maxlen=100)
+        self.power_readings: deque[float] = deque(maxlen=100)
 
     def monitor_power_and_freq(self):
         pynvml.nvmlInit()
