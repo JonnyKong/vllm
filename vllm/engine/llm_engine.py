@@ -25,6 +25,7 @@ from vllm.core.idle_time_injector import IdleTimeInjector
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
 from vllm.engine.arg_utils import EngineArgs
+from vllm.engine.circuit_breaker import CircuitBreaker, SimpleCircuitBreaker
 from vllm.engine.metrics_types import StatLoggerBase, Stats
 from vllm.engine.output_processor.interfaces import (
     SequenceGroupOutputProcessor)
@@ -415,8 +416,9 @@ class LLMEngine:
             self.idle_time_injector = IdleTimeInjector.create_from_config(
                 vllm_config, self)
 
-        self.enable_circuit_breaker: bool = vllm_config.enable_circuit_breaker
-        self.is_tripped: bool = False
+        self.circuit_breaker: Optional[CircuitBreaker] = None
+        if vllm_config.enable_circuit_breaker:
+            self.circuit_breaker = SimpleCircuitBreaker(self)
 
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:

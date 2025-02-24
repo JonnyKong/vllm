@@ -945,22 +945,11 @@ class AsyncLLMEngine(EngineClient):
             priority=priority,
         )
 
-        if self.engine.enable_circuit_breaker:
-            num_running = sum(
-                len(scheduler.running) for scheduler in self.engine.scheduler)
-            num_running_max = sum(scheduler.scheduler_config.max_num_seqs
-                                  for scheduler in self.engine.scheduler)
-            running_util = num_running / num_running_max
-
-            if not self.engine.is_tripped and running_util > 0.99:
-                self.engine.is_tripped = True
-                logger.info("Circuit breaker tripped")
-            elif self.engine.is_tripped and running_util < 0.05:
-                self.engine.is_tripped = False
-                logger.info("Circuit breaker reset")
-        if self.engine.is_tripped:
-            logger.info("Circuit breaker abort req: %s", request_id)
-            await self.abort(request_id)
+        if self.engine.circuit_breaker:
+            self.engine.circuit_breaker.step()
+            if self.engine.circuit_breaker.is_tripped:
+                logger.info("Circuit breaker abort req: %s", request_id)
+                await self.abort(request_id)
 
         return stream.generator()
 

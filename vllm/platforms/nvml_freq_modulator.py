@@ -143,17 +143,23 @@ class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
         sys_stats = self.get_sys_stats()
         logger.debug('sys_stats: %s', str(sys_stats))
 
-        # State is running queue util
-        state = sys_stats['running_req_cnt'] / sys_stats['running_req_max']
+        # State is sum of request count in running and waiting queue,
+        # normalized by running queue size, which can go beyond 1.0
+        state = (sys_stats['running_req_cnt'] +
+                 sys_stats['waiting_req_cnt']) / sys_stats['running_req_max']
 
         timestamp = time.perf_counter()
 
-        if self.previous_state is not None and not self.llm_engine.is_tripped:
-            # The state transition model assumes a specific request arrival
-            # rate. When the circuit breaker is tripped, the request rate is 0,
-            # so stop logging data
-            self.data_log.append(
-                (timestamp, self.previous_state, self.current_freq, state))
+        if self.previous_state is not None:
+            if (self.llm_engine.circuit_breaker
+                    and self.llm_engine.circuit_breaker.is_tripped):
+                # The state transition model assumes a specific request arrival
+                # rate. When the circuit breaker is tripped, the request rate
+                # is 0, so stop logging data
+                pass
+            else:
+                self.data_log.append(
+                    (timestamp, self.previous_state, self.current_freq, state))
 
         self.current_freq = self._select_action(state)
         self.previous_state = state
