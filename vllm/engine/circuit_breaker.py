@@ -22,8 +22,8 @@ class CircuitBreaker(ABC):
 
 
 class SimpleCircuitBreaker(CircuitBreaker):
-    THRESH_LOW = 0.05
-    THRESH_HIGH = 1.15
+    THRESH_LOW = 0.1
+    THRESH_HIGH = 1.10
 
     def step(self):
         num_running = sum(

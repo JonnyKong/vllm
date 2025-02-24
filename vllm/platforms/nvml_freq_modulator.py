@@ -104,7 +104,20 @@ class NvmlFreqModulator(ABC):
             sum(r.first_seq.get_prompt_len()
                 for scheduler in self.llm_engine.scheduler
                 for r in scheduler.waiting),
+            'gpu_kv_cache_usage':
+            self._get_gpu_kv_cache_usage(),
         }
+
+    def _get_gpu_kv_cache_usage(self):
+        # https://github.com/vllm-project/vllm/blob/1f0ae3ed0aa9af7f5e88e56f5c960cc919c2f090/vllm/engine/llm_engine.py#L1581-L1588
+        num_total_gpu = self.llm_engine.cache_config.num_gpu_blocks
+        gpu_cache_usage_sys = 0.
+        if num_total_gpu:  # Guard against both None and 0
+            num_free_gpu = sum(
+                scheduler.block_manager.get_num_free_gpu_blocks()
+                for scheduler in self.llm_engine.scheduler)
+            gpu_cache_usage_sys = 1.0 - (num_free_gpu / num_total_gpu)
+        return gpu_cache_usage_sys
 
 
 class RuleBasedNvmlFreqModulator(NvmlFreqModulator):

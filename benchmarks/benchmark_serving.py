@@ -28,6 +28,7 @@ import asyncio
 import base64
 import gc
 import io
+import itertools
 import json
 import os
 import random
@@ -108,9 +109,10 @@ def sample_sharegpt_requests(
 
     # Filter out sequences that are too long or too short
     filtered_dataset: List[Tuple[str, int, int]] = []
-    for i in range(len(dataset)):
+    for c in itertools.count(0):  # Loop to inf
         if len(filtered_dataset) == num_requests:
             break
+        i = c % len(dataset)  # Wrap around
 
         # Tokenize the prompts and completions.
         prompt = dataset[i][0]
