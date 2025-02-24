@@ -5,6 +5,9 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import pandas as pd
+import math
+import multiprocessing
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
@@ -68,6 +71,18 @@ class NvmlFreqModulator(ABC):
                 interval_s=interval_s,
                 freq_choices=a40_freq_choices,
                 log_file=str(log_file))
+        elif config.freq_mod_mode == 'q-learn':
+            assert config.log_dir
+            a40_freq_choices = [
+                510, 675, 825, 930, 1050, 1125, 1200, 1320, 1440, 1590, 1740
+            ]
+            log_file = Path(config.log_dir) / 'q_learning.csv'
+            return QLearningNvmlFreqModulator(
+                llm_engine,
+                interval_s=interval_s,
+                freq_choices=a40_freq_choices,
+                log_file=str(log_file),
+                power_usage_queue=llm_engine.power_usage_queue)
         else:
             raise NotImplementedError(
                 f'Unrecognized freq_mod_mode: {llm_engine.freq_mod_mode}')
@@ -175,5 +190,146 @@ class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
         self.data_log.clear()
 
     def __del__(self):
+        """ Ensure the file handle is closed properly on object destruction. """
+        self.log_file_handle.close()
+
+
+class QLearningNvmlFreqModulator(NvmlFreqModulator):
+    """
+    A GPU frequency modulator using tabular Q-learning to adjust the GPU
+    frequency based on the state of the system.
+    """
+
+    def __init__(self,
+                 llm_engine,
+                 interval_s: float,
+                 freq_choices: List[int],
+                 power_usage_queue: multiprocessing.SimpleQueue,
+                 log_file: str,
+                 alpha: float = 0.1,
+                 gamma: float = 0.9,
+                 epsilon: float = 0.1) -> None:
+        super().__init__(llm_engine, interval_s)
+        self.frequency_list = freq_choices
+        self.current_freq = max(freq_choices)
+        self.log_file = log_file
+        self.q_table = {}
+        self.initialize_q_table(0)
+        self.load_q_table()
+        self.alpha = alpha  # Learning rate
+        self.gamma = gamma  # Discount factor
+        self.epsilon = epsilon  # Exploration rate
+        self.previous_state: Optional[float] = None
+        self.previous_action: Optional[int] = None
+        self.power_usage_queue = power_usage_queue
+
+    def adjust(self) -> int:
+        sys_stats = self.get_sys_stats()
+        running_tasks = sys_stats['running_req_cnt']
+        max_tasks = sys_stats['running_req_max']
+        # prefill_tokens = sys_stats['waiting_token_cnt']
+
+        # state is how full is the running queue in increments of 0.1
+        state = math.ceil(running_tasks / max_tasks *
+                          10) / 10 if max_tasks > 0 else 0
+
+        mean_power_usage = 0
+        while not self.power_usage_queue.empty():
+            # takes the latest value only
+            mean_power_usage = self.power_usage_queue.get()
+
+        # TODO, change 300 to the max power usage of the GPU
+        power_reward = 1 - mean_power_usage / 300
+        # TODO, check if penalty should be higher or lower
+        wait_queue_penalty = -1 if len(
+            self.llm_engine.scheduler[0].waiting) > 0 else 0
+
+        if self.previous_state is not None and self.previous_action is not None:
+            reward = power_reward + wait_queue_penalty  #reward function
+            self._update_q_table(self.previous_state, self.previous_action,
+                                 reward, state)
+
+        action = self._select_action(state)
+        self.previous_state = state
+        self.previous_action = action
+
+        asyncio.create_task(asyncio.to_thread(self.save_data))
+
+        return action
+
+    def _select_action(self, state: float) -> int:
+        if random.uniform(0, 1) < self.epsilon:
+            return random.choice(self.frequency_list)  # Explore
+        return self._get_best_action(state)  # Exploit
+
+    def _get_best_action(self, state: float) -> int:
+        state_actions = self.q_table.get(state, {})
+        if not state_actions:
+            return random.choice(self.frequency_list)
+        return max(state_actions, key=state_actions.get)
+
+    def _update_q_table(self, state: float, action: int, reward: float,
+                        next_state: float) -> None:
+        if state == 1.0:
+            return
+        state_actions = self.q_table.setdefault(
+            state, {freq: 0
+                    for freq in self.frequency_list})
+        next_state_actions = self.q_table.get(
+            next_state, {freq: 0
+                         for freq in self.frequency_list})
+        best_next_action = max(next_state_actions, key=next_state_actions.get)
+        td_target = reward + self.gamma * next_state_actions[best_next_action]
+        td_error = td_target - state_actions[action]
+        state_actions[action] += self.alpha * td_error
+
+    def initialize_q_table(self, default_value: float) -> None:
+        for state in [i / 10 for i in range(11)
+                      ]:  # states are 0.0, 0.1, 0.2, ..., 1.0
+            self.q_table[state] = {
+                freq: default_value
+                for freq in self.frequency_list
+            }
+        self.q_table[1.0] = {
+            freq: -1
+            for freq in [1740]
+        }  # only the highest frequency is allowed when the queue is full
+
+        suggested_q_value = 1
+        self.q_table[0.0][510] = suggested_q_value
+        self.q_table[0.1][675] = suggested_q_value
+        self.q_table[0.2][825] = suggested_q_value
+        self.q_table[0.3][930] = suggested_q_value
+        self.q_table[0.4][1050] = suggested_q_value
+        self.q_table[0.5][1125] = suggested_q_value
+        self.q_table[0.6][1200] = suggested_q_value
+        self.q_table[0.7][1320] = suggested_q_value
+        self.q_table[0.8][1440] = suggested_q_value
+        self.q_table[0.9][1590] = suggested_q_value
+
+    def load_q_table(self) -> None:
+        try:
+            df = pd.read_csv(self.log_file + '_init')
+            for _, row in df.iterrows():
+                state = row['state']
+                action = row['action']
+                q_value = row['q_value']
+                if state not in self.q_table:
+                    self.q_table[state] = {}
+                self.q_table[state][action] = q_value
+            print(f"Q-table loaded from {self.log_file}")
+        except FileNotFoundError:
+            print(f"File {self.log_file} not found. Using default values.")
+            self.initialize_q_table(0)
+
+    def save_data(self) -> None:
+        df = pd.DataFrame([(state, action, q_value)
+                           for state, actions in self.q_table.items()
+                           for action, q_value in actions.items()],
+                          columns=['state', 'action', 'q_value'])
+        df.to_csv(self.log_file, index=False)
+
+    def __del__(self):
+        self.save_data()
         """ Ensure the file handle is closed properly on object destruction. """
         self.log_file_handle.close()
