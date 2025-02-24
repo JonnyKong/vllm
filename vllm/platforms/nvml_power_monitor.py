@@ -78,7 +78,7 @@ class NvmlPowerMonitor:
                         mem_freq = pynvml.nvmlDeviceGetClockInfo(
                             handle, pynvml.NVML_CLOCK_MEM)
                         readings.append(mem_freq)
-                        
+
                 self.logs.append(readings)
                 self.power_readings.append(total_power)
 
@@ -108,11 +108,12 @@ class NvmlPowerMonitor:
             self.logs = []
 
 
-def start_nvml_monitor(interval: float,
-                       csv_filename: str,
-                       log_interval=1,
-                       enable_mem_freq_meas=False,
-                       power_queue: Optional[multiprocessing.SimpleQueue] = None):
+def start_nvml_monitor(
+        interval: float,
+        csv_filename: str,
+        log_interval=1,
+        enable_mem_freq_meas=False,
+        power_queue: Optional[multiprocessing.SimpleQueue] = None):
     monitor = NvmlPowerMonitor(interval=interval,
                                csv_filename=csv_filename,
                                log_interval=log_interval,
@@ -129,8 +130,7 @@ def measure_power(csv_filename,
                   power_queue: Optional[multiprocessing.SimpleQueue] = None):
     process = multiprocessing.Process(target=start_nvml_monitor,
                                       args=(interval, csv_filename,
-                                            log_interval,
-                                            enable_mem_freq_meas,
+                                            log_interval, enable_mem_freq_meas,
                                             power_queue))
     process.start()
     try:
