@@ -132,14 +132,14 @@ class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
     frequency_table = {
         (0.0, 0.2): 825,
         (0.2, 0.5): 1125,
-        (0.5, 0.8): 1440,
-        (0.8, 1.0): 1740,
+        (0.5, 0.9): 1440,
+        (0.9, 1.0): 1740,
     }
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
 
-        fraction = sys_stats['running_req_cnt'] / sys_stats['running_req_max']
+        fraction = sys_stats['gpu_kv_cache_usage']
 
         for (low, high), freq in self.frequency_table.items():
             if low <= fraction < high:
