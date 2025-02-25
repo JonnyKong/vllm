@@ -299,9 +299,6 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         best_next_action = max(next_state_actions,
                                key=lambda x: float(next_state_actions[x]))
         td_target = reward + self.gamma * next_state_actions[best_next_action]
-        print(
-            f"state: {state}, action: {action}, reward: {reward}, next_state: {next_state}"
-        )
         td_error = td_target - state_actions[action]
         state_actions[action] += self.alpha * td_error
 
