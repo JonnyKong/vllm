@@ -75,7 +75,7 @@ class NvmlFreqModulator(ABC):
         elif config.freq_mod_mode == 'q-learn':
             assert config.log_dir
             a40_freq_choices = [
-                510, 675, 825, 930, 1050, 1125, 1200, 1320, 1440, 1590, 1740
+                540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
             ]
             log_file = Path(config.log_dir) / 'q_learning.csv'
             return QLearningNvmlFreqModulator(
@@ -231,6 +231,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                  epsilon: float = 0.1) -> None:
         super().__init__(llm_engine, interval_s)
         self.frequency_list = freq_choices
+        self.action_list = [i for i in range(len(freq_choices))]
         self.current_freq = max(freq_choices)
         self.log_file = log_file
         self.q_table: Dict[float, Dict[int, float]] = {}
@@ -274,32 +275,33 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
 
         asyncio.create_task(asyncio.to_thread(self.save_data))
 
-        return action
+        return self.frequency_list[action]
 
     def _select_action(self, state: float) -> int:
-        if random.uniform(0, 1) < self.epsilon:
-            return random.choice(self.frequency_list)  # Explore
+        if random.uniform(0, 1) < self.epsilon and state != 1.0:
+            return random.choice(self.action_list)  # Explore
         return self._get_best_action(state)  # Exploit
 
     def _get_best_action(self, state: float) -> int:
         state_actions = self.q_table.get(state, {})
         if not state_actions:
-            return random.choice(self.frequency_list)
+            return random.choice(self.action_list)
         return max(state_actions, key=lambda x: state_actions[x])
 
     def _update_q_table(self, state: float, action: int, reward: float,
                         next_state: float) -> None:
-        if state == 1.0:
-            return
         state_actions = self.q_table.setdefault(
             state, {freq: 0
-                    for freq in self.frequency_list})
+                    for freq in self.action_list})
         next_state_actions = self.q_table.get(
             next_state, {freq: 0
-                         for freq in self.frequency_list})
+                         for freq in self.action_list})
         best_next_action = max(next_state_actions,
                                key=lambda x: float(next_state_actions[x]))
         td_target = reward + self.gamma * next_state_actions[best_next_action]
+        print(
+            f"state: {state}, action: {action}, reward: {reward}, next_state: {next_state}"
+        )
         td_error = td_target - state_actions[action]
         state_actions[action] += self.alpha * td_error
 
@@ -308,24 +310,23 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                       ]:  # states are 0.0, 0.1, 0.2, ..., 1.0
             self.q_table[state] = {
                 freq: default_value
-                for freq in self.frequency_list
+                for freq in self.action_list
             }
         self.q_table[1.0] = {
             freq: 0
-            for freq in [1740]
+            for freq in [self.action_list[10]]
         }  # only the highest frequency is allowed when the queue is full
-
         suggested_q_value = 1
-        self.q_table[0.0][510] = suggested_q_value
-        self.q_table[0.1][675] = suggested_q_value
-        self.q_table[0.2][825] = suggested_q_value
-        self.q_table[0.3][930] = suggested_q_value
-        self.q_table[0.4][1050] = suggested_q_value
-        self.q_table[0.5][1125] = suggested_q_value
-        self.q_table[0.6][1200] = suggested_q_value
-        self.q_table[0.7][1320] = suggested_q_value
-        self.q_table[0.8][1440] = suggested_q_value
-        self.q_table[0.9][1590] = suggested_q_value
+        self.q_table[0.0][self.action_list[0]] = suggested_q_value
+        self.q_table[0.1][self.action_list[1]] = suggested_q_value
+        self.q_table[0.2][self.action_list[2]] = suggested_q_value
+        self.q_table[0.3][self.action_list[3]] = suggested_q_value
+        self.q_table[0.4][self.action_list[4]] = suggested_q_value
+        self.q_table[0.5][self.action_list[5]] = suggested_q_value
+        self.q_table[0.6][self.action_list[6]] = suggested_q_value
+        self.q_table[0.7][self.action_list[7]] = suggested_q_value
+        self.q_table[0.8][self.action_list[8]] = suggested_q_value
+        self.q_table[0.9][self.action_list[9]] = suggested_q_value
 
     def load_q_table(self) -> None:
         try:
