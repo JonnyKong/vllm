@@ -245,19 +245,12 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
-        
         KV_usage = sys_stats['gpu_kv_cache_usage']  # already 0 to 1.0
 
         # 1.0 means (0.9 to 1.0]
         # 0.1 means (0.0 to 0.1]
         # 0.0  means [0.0]
         state = math.ceil(KV_usage * 10) / 10
-
-        # running_tasks = sys_stats['running_req_cnt']
-        # max_tasks = sys_stats['running_req_max']
-
-        # state = math.ceil(running_tasks / max_tasks *
-        #                   10) / 10 if max_tasks > 0 else 0
 
         mean_power_usage = 0
         while not self.power_usage_queue.empty():
