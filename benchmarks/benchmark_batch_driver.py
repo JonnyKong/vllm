@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import itertools
 import os
+import sys
+from typing import Callable
 
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
@@ -12,9 +14,7 @@ from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
 
 
-def yield_benchmark_batch_args(pp: int = 1,
-                               tp: int = 1,
-                               skip_existing: bool = False):
+def yield_benchmark_batch_args(pp: int, tp: int, skip_existing: bool = False):
     expr_dir = (
         get_result_root() /
         f'request_timing/2025-02-02_benchmark-batch_llama70b/{get_gpu_name()}-pp{pp}-tp{tp}'
@@ -50,7 +50,7 @@ def yield_benchmark_batch_args(pp: int = 1,
         )
 
 
-def yield_benchmark_idle_power_args(pp: int = 1, tp: int = 1):
+def yield_benchmark_idle_power_args(pp: int, tp: int):
     """
     Introduce a delay before issuing each batch to assess whether the power
     consumption between batches aligns with the idle power measured offline.
@@ -77,26 +77,52 @@ def yield_benchmark_idle_power_args(pp: int = 1, tp: int = 1):
             )
 
 
-def main():
+def yield_benchmark_sarathi_args(pp: int, tp: int):
+    """
+    Derive the SLO with Sarathi-serve's definition:
+
+    "We define the SLO on P99 TBT to be equal to 5× and 25× the execution time
+    of a decode iteration for a request ,with prefill length of 4k and 32 batch
+    size) running without any prefill interference"
+    """
+    decode_bs = 32
+    decode_input_len = 4000
+    freq = max(nvml_get_available_freq())
+    log_dir = (get_result_root() / 'request_timing' /
+               '2025-02-26_benchmark-slo' / f'{get_gpu_name()}-pp{pp}-tp{tp}' /
+               f'decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}')
+    yield BenchmarkBatchParam(
+        prefill_input_lens=[],
+        decode_input_lens=[decode_input_len] * decode_bs,
+        log_dir=str(log_dir),
+        gpu_freq_mhz=freq,
+        delay_time_s=0.0,
+    )
+
+
+def main(expr_fn: Callable):
     tp = 1
     pp = 1
-    # model = 'meta-llama/Llama-3.1-8B-Instruct'
-    model = 'meta-llama/Llama-3.1-70B-Instruct'
+    model = 'meta-llama/Llama-3.1-8B-Instruct'
+    # model = 'meta-llama/Llama-3.1-70B-Instruct'
     vllm_args = (f"--model {model} "
                  f"-tp {tp} "
                  f"-pp {pp} "
+                 "--disable-async-output-proc "
+                 "--max-num-seqs 1024 --max-num-batched-tokens 8192 "
                  "--collect-detailed-traces worker").split()
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
     vllm_args = parser.parse_args(vllm_args)
 
     # Pass in a list instead of generator so tqdm prints progress
-    uvloop.run(
-        benchmark_batch(vllm_args,
-                        list(yield_benchmark_batch_args(pp=pp, tp=tp))))
-    # uvloop.run(
-    #     benchmark_batch(vllm_args, list(yield_benchmark_idle_power_args())))
+    uvloop.run(benchmark_batch(vllm_args, list(expr_fn(tp=tp, pp=pp))))
 
 
 if __name__ == '__main__':
-    main()
+    expr_fn = {
+        'batch': yield_benchmark_batch_args,
+        'idle-power': yield_benchmark_idle_power_args,
+        'sarathi-serve-sla': yield_benchmark_sarathi_args,
+    }[sys.argv[1]]
+    main(expr_fn)
