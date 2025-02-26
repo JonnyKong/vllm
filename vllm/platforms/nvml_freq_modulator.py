@@ -226,19 +226,21 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                  freq_choices: List[int],
                  power_usage_queue: multiprocessing.SimpleQueue,
                  log_file: str,
+                 gpu_tdp: int = 300,
                  alpha: float = 0.1,
                  gamma: float = 0.9,
                  epsilon: float = 0.1) -> None:
         super().__init__(llm_engine, interval_s)
-        self.frequency_list = freq_choices
+        self.freq_choices = freq_choices
         self.action_list = [i for i in range(len(freq_choices))]
         self.current_freq = max(freq_choices)
         self.log_file = log_file
         self.q_table: Dict[float, Dict[int, float]] = {}
-        self.initialize_q_table(0)
         self.load_q_table()
-        self.alpha = alpha  # Learning rate
-        self.gamma = gamma  # Discount factor
+
+        self.gpu_tdp: float = gpu_tdp
+        self.alpha: float = alpha  # Learning rate
+        self.gamma: float = gamma  # Discount factor
         self.epsilon = epsilon  # Exploration rate
         self.previous_state: Optional[float] = None
         self.previous_action: Optional[int] = None
@@ -246,23 +248,23 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
-        KV_usage = sys_stats['gpu_kv_cache_usage']  # already 0 to 1.0
+        kv_usage = sys_stats['gpu_kv_cache_usage']  # already 0 to 1.0
 
         # 1.0 means (0.9 to 1.0]
         # 0.1 means (0.0 to 0.1]
         # 0.0  means [0.0]
-        state = math.ceil(KV_usage * 10) / 10
+        state = math.ceil(kv_usage * 10) / 10
 
         mean_power_usage = 0
         while not self.power_usage_queue.empty():
             # takes the latest value only
             mean_power_usage = self.power_usage_queue.get()
 
-        # TODO, change 300 to the max power usage of the GPU
-        power_reward = 1 - mean_power_usage / 300
+        power_reward = 1 - mean_power_usage / self.gpu_tdp
         # TODO, check if penalty should be higher or lower
         wait_queue_penalty = -1 if len(
             self.llm_engine.scheduler[0].waiting) > 0 else 0
+        print('============= wait_queue_penalty: ', wait_queue_penalty)
 
         if self.previous_state is not None and self.previous_action is not None:
             reward = power_reward + wait_queue_penalty  #reward function
@@ -275,7 +277,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
 
         asyncio.create_task(asyncio.to_thread(self.save_data))
 
-        return self.frequency_list[action]
+        return self.freq_choices[action]
 
     def _select_action(self, state: float) -> int:
         if random.uniform(0, 1) < self.epsilon and state != 1.0:
@@ -335,9 +337,10 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                 if state not in self.q_table:
                     self.q_table[state] = {}
                 self.q_table[state][action] = q_value
-            print(f"Q-table loaded from {self.log_file}")
+            logger.info('Q-table loaded from %s', self.log_file)
         except FileNotFoundError:
-            print(f"File {self.log_file} not found. Using default values.")
+            logger.info('File %s not found. Using default values.',
+                        self.log_file)
             self.initialize_q_table(0)
 
     def save_data(self) -> None:
