@@ -8,9 +8,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import pandas as pd
 
 from vllm.config import VllmConfig
+from vllm.engine.metrics_types import Stats
 from vllm.logger import init_logger
 from vllm.platforms.nvml_utils import nvml_set_freq
 
@@ -31,7 +33,17 @@ class NvmlFreqModulator(ABC):
         self.interval_s = interval_s
         self.last_adjustment_time = time.perf_counter()
 
-    def step(self) -> None:
+        # stats over the course of a RL step
+        self.stats_buffer: List[Stats] = []
+
+    def step(self, stats: Optional[Stats]) -> None:
+        """
+        Should be called on each engine step, passing in the stats at that
+        step.
+        """
+        if stats:
+            self.stats_buffer.append(stats)
+
         current_time = time.perf_counter()
         if current_time - self.last_adjustment_time >= self.interval_s:
             freq = self.adjust()
@@ -44,6 +56,7 @@ class NvmlFreqModulator(ABC):
                 # nested inside another event loop
                 asyncio.run(self.set_freq_async(freq))
             self.last_adjustment_time = current_time
+            self.stats_buffer = []
 
     @abstractmethod
     def adjust(self) -> int:
@@ -92,6 +105,11 @@ class NvmlFreqModulator(ABC):
         """
         Extract states potentially usable by RL.
         """
+        # TBT
+        tbt_arr = []
+        for s in self.stats_buffer:
+            tbt_arr.extend(s.time_per_output_tokens_iter)
+
         return {
             'running_req_cnt':
             sum(len(s.running) for s in self.llm_engine.scheduler),
@@ -106,6 +124,10 @@ class NvmlFreqModulator(ABC):
                 for r in scheduler.waiting),
             'gpu_kv_cache_usage':
             self._get_gpu_kv_cache_usage(),
+            'tbt_mean':
+            float(np.mean(tbt_arr)) if len(tbt_arr) > 0 else 0.0,
+            'tbt_p99':
+            float(np.percentile(tbt_arr, 99)) if len(tbt_arr) > 0 else 0.0,
         }
 
     def _get_gpu_kv_cache_usage(self):

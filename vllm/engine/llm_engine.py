@@ -1452,6 +1452,7 @@ class LLMEngine:
             for seq_group in seq_group_metadata_list:
                 seq_group.finish_step()
 
+        stats: Optional[Stats] = None
         if not self._has_remaining_steps(seq_group_metadata_list):
             # clear the cache if we have finished all the steps.
             if self.scheduler_config.is_multi_step:
@@ -1488,7 +1489,7 @@ class LLMEngine:
                             = time.perf_counter() - now
 
                 # Log stats.
-                self.do_log_stats(scheduler_outputs, outputs)
+                stats = self.do_log_stats(scheduler_outputs, outputs)
 
                 # Tracing
                 self.do_tracing(scheduler_outputs)
@@ -1511,7 +1512,7 @@ class LLMEngine:
             self.model_executor.stop_remote_worker_execution_loop()
 
         if self.freq_modulator:
-            self.freq_modulator.step()
+            self.freq_modulator.step(stats)
 
         return ctx.request_outputs
 
@@ -1593,13 +1594,16 @@ class LLMEngine:
                      scheduler_outputs: Optional[SchedulerOutputs] = None,
                      model_output: Optional[List[SamplerOutput]] = None,
                      finished_before: Optional[List[int]] = None,
-                     skip: Optional[List[int]] = None) -> None:
+                     skip: Optional[List[int]] = None) -> Optional[Stats]:
         """Forced log when no requests active."""
         if self.log_stats:
             stats = self._get_stats(scheduler_outputs, model_output,
                                     finished_before, skip)
             for logger in self.stat_loggers.values():
                 logger.log(stats)
+            return stats
+        else:
+            return None
 
     def _get_stats(self,
                    scheduler_outputs: Optional[SchedulerOutputs],

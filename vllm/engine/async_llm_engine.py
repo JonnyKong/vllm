@@ -18,7 +18,7 @@ from vllm.core.scheduler import SchedulerOutputs
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_timeout import asyncio_timeout
 from vllm.engine.llm_engine import LLMEngine, SchedulerOutputState
-from vllm.engine.metrics_types import StatLoggerBase
+from vllm.engine.metrics_types import StatLoggerBase, Stats
 from vllm.engine.protocol import EngineClient
 from vllm.executor.executor_base import ExecutorBase
 from vllm.inputs import PromptType
@@ -374,6 +374,7 @@ class _AsyncLLMEngine(LLMEngine):
             for seq_group in seq_group_metadata_list:
                 seq_group.finish_step()
 
+        stats: Optional[Stats] = None
         if not self._has_remaining_steps(seq_group_metadata_list):
             # Clear the cache if we have finished all the steps
             if self.scheduler_config.is_multi_step:
@@ -412,7 +413,7 @@ class _AsyncLLMEngine(LLMEngine):
                     await self.async_callback_before_logging()
 
                 # Log stats.
-                self.do_log_stats(scheduler_outputs, outputs)
+                stats = self.do_log_stats(scheduler_outputs, outputs)
 
                 # Tracing
                 self.do_tracing(scheduler_outputs)
@@ -428,7 +429,7 @@ class _AsyncLLMEngine(LLMEngine):
             assert len(ctx.output_queue) == 0
 
         if self.freq_modulator:
-            self.freq_modulator.step()
+            self.freq_modulator.step(stats)
 
         return ctx.request_outputs
 
