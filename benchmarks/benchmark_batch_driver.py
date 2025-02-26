@@ -91,9 +91,11 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
     log_dir = (get_result_root() / 'request_timing' /
                '2025-02-26_benchmark-slo' / f'{get_gpu_name()}-pp{pp}-tp{tp}' /
                f'decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}')
+    # Use uneven batch sizes, which matches online serving
+    decode_input_lens = list(range(decode_input_len, decode_input_len + 32))
     yield BenchmarkBatchParam(
         prefill_input_lens=[],
-        decode_input_lens=[decode_input_len] * decode_bs,
+        decode_input_lens=decode_input_lens,
         log_dir=str(log_dir),
         gpu_freq_mhz=freq,
         delay_time_s=0.0,
