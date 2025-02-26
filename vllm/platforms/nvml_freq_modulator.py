@@ -6,7 +6,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -66,24 +66,24 @@ class NvmlFreqModulator(ABC):
         elif config.freq_mod_mode == 'value-iter':
             assert config.log_dir
             a40_freq_choices = [210, 510, 825, 1125, 1440, 1740]
-            log_file = Path(config.log_dir) / 'value_iter.csv'
+            log_file = str(Path(config.log_dir) / 'value_iter.csv')
             return ValueIterationNvmlFreqModulator(
                 llm_engine,
                 interval_s=interval_s,
                 freq_choices=a40_freq_choices,
-                log_file=str(log_file))
+                log_file=log_file)
         elif config.freq_mod_mode == 'q-learn':
             assert config.log_dir
             a40_freq_choices = [
                 540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
             ]
-            log_file = Path(config.log_dir) / 'q_learning.csv'
             return QLearningNvmlFreqModulator(
                 llm_engine,
                 interval_s=interval_s,
                 freq_choices=a40_freq_choices,
-                log_file=str(log_file),
-                power_usage_queue=llm_engine.power_usage_queue)
+                log_dir=config.log_dir,
+                power_usage_queue=llm_engine.power_usage_queue,
+                save_rl_history=True)
         else:
             raise NotImplementedError(
                 f'Unrecognized freq_mod_mode: {llm_engine.freq_mod_mode}')
@@ -225,26 +225,37 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                  interval_s: float,
                  freq_choices: List[int],
                  power_usage_queue: multiprocessing.SimpleQueue,
-                 log_file: str,
+                 log_dir: str,
                  gpu_tdp: int = 300,
                  alpha: float = 0.1,
                  gamma: float = 0.9,
-                 epsilon: float = 0.1) -> None:
+                 epsilon: float = 0.1,
+                 save_rl_history: bool = False) -> None:
         super().__init__(llm_engine, interval_s)
         self.freq_choices = freq_choices
-        self.action_list = [i for i in range(len(freq_choices))]
-        self.current_freq = max(freq_choices)
-        self.log_file = log_file
-        self.q_table: Dict[float, Dict[int, float]] = {}
-        self.load_q_table()
-
+        self.power_usage_queue = power_usage_queue
+        self.log_dir = log_dir
         self.gpu_tdp: float = gpu_tdp
         self.alpha: float = alpha  # Learning rate
         self.gamma: float = gamma  # Discount factor
         self.epsilon = epsilon  # Exploration rate
+        self.save_rl_history = save_rl_history
+
+        self.action_list = [i for i in range(len(freq_choices))]
+        self.current_freq = max(freq_choices)
+        self.q_table: Dict[float, Dict[int, float]] = {}
         self.previous_state: Optional[float] = None
         self.previous_action: Optional[int] = None
-        self.power_usage_queue = power_usage_queue
+        self.reward_arr: List[float] = []
+
+        # Q-table version number
+        self.step_id = 0
+
+        self.history_q_table_dir = Path(self.log_dir) / 'q_tables'
+        if self.save_rl_history:
+            self.history_q_table_dir.mkdir(exist_ok=True, parents=True)
+
+        self.load_q_table()
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
@@ -264,10 +275,10 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         # TODO, check if penalty should be higher or lower
         wait_queue_penalty = -1 if len(
             self.llm_engine.scheduler[0].waiting) > 0 else 0
-        print('============= wait_queue_penalty: ', wait_queue_penalty)
 
         if self.previous_state is not None and self.previous_action is not None:
             reward = power_reward + wait_queue_penalty  #reward function
+            self.reward_arr.append(reward)
             self._update_q_table(self.previous_state, self.previous_action,
                                  reward, state)
 
@@ -275,8 +286,18 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         self.previous_state = state
         self.previous_action = action
 
-        asyncio.create_task(asyncio.to_thread(self.save_data))
+        if not self.save_rl_history:
+            log_file = Path(self.log_dir) / 'q_learning.csv'
+        else:
+            log_file = self.history_q_table_dir \
+                    / f'q_learning_{self.step_id:04d}.csv'
+        asyncio.create_task(asyncio.to_thread(self._save_q_table, log_file))
 
+        # Save reward history periodically
+        if self.step_id % 10 == 0:
+            self._save_rewards(Path(self.log_dir) / 'rewards.csv')
+
+        self.step_id += 1
         return self.freq_choices[action]
 
     def _select_action(self, state: float) -> int:
@@ -328,8 +349,9 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         self.q_table[0.9][self.action_list[9]] = suggested_q_value
 
     def load_q_table(self) -> None:
+        log_file = Path(self.log_dir) / 'q_learning_init.csv'
         try:
-            df = pd.read_csv(self.log_file + '_init')
+            df = pd.read_csv(log_file)
             for _, row in df.iterrows():
                 state = row['state']
                 action = row['action']
@@ -337,18 +359,23 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                 if state not in self.q_table:
                     self.q_table[state] = {}
                 self.q_table[state][action] = q_value
-            logger.info('Q-table loaded from %s', self.log_file)
+            logger.info('Q-table loaded from %s', log_file)
         except FileNotFoundError:
-            logger.info('File %s not found. Using default values.',
-                        self.log_file)
+            logger.info(
+                'Q-table file %s not found, initializing from scratch.',
+                log_file)
             self.initialize_q_table(0)
 
-    def save_data(self) -> None:
+    def _save_q_table(self, log_file: Union[str, Path]) -> None:
         df = pd.DataFrame([(state, action, q_value)
                            for state, actions in self.q_table.items()
                            for action, q_value in actions.items()],
                           columns=['state', 'action', 'q_value'])
-        df.to_csv(self.log_file, index=False)
+        df.to_csv(log_file, index=False)
+
+    def _save_rewards(self, log_file: Union[str, Path]):
+        pd.DataFrame(self.reward_arr).to_csv(log_file, index=False)
 
     def __del__(self):
-        self.save_data()
+        log_file = Path(self.log_dir) / 'q_learning.csv'
+        self._save_q_table(log_file)
