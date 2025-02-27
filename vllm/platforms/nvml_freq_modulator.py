@@ -381,7 +381,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
             df = pd.read_csv(log_file)
             for _, row in df.iterrows():
                 state = row['state']
-                action = row['action']
+                action = int(round(row['action']))
                 q_value = row['q_value']
                 if state not in self.q_table:
                     self.q_table[state] = {}
