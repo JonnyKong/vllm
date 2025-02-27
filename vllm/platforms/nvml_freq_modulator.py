@@ -96,7 +96,8 @@ class NvmlFreqModulator(ABC):
                 freq_choices=a40_freq_choices,
                 log_dir=config.log_dir,
                 power_usage_queue=llm_engine.power_usage_queue,
-                save_rl_history=True)
+                save_rl_history=True,
+                TBT_SLO=0.250)
         else:
             raise NotImplementedError(
                 f'Unrecognized freq_mod_mode: {llm_engine.freq_mod_mode}')
@@ -252,7 +253,8 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
                  alpha: float = 0.1,
                  gamma: float = 0.9,
                  epsilon: float = 0.1,
-                 save_rl_history: bool = False) -> None:
+                 save_rl_history: bool = False,
+                 TBT_SLO: float = 0.5) -> None:
         super().__init__(llm_engine, interval_s)
         self.freq_choices = freq_choices
         self.power_usage_queue = power_usage_queue
@@ -262,6 +264,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         self.gamma: float = gamma  # Discount factor
         self.epsilon = epsilon  # Exploration rate
         self.save_rl_history = save_rl_history
+        self.TBT_SLO = TBT_SLO  # SLO in seconds
 
         self.action_list = [i for i in range(len(freq_choices))]
         self.current_freq = max(freq_choices)
@@ -293,13 +296,15 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
             # takes the latest value only
             mean_power_usage = self.power_usage_queue.get()
 
-        power_reward = 1 - mean_power_usage / self.gpu_tdp
+        power_reward = 2 - mean_power_usage / self.gpu_tdp
         # TODO, check if penalty should be higher or lower
         wait_queue_penalty = -1 if len(
-            self.llm_engine.scheduler[0].waiting) > 0 else 0
+            self.llm_engine.scheduler[0].waiting) > 5 else 0
+        TBT_penalty = -10 if sys_stats['tbt_p99'] > self.TBT_SLO else 0
 
         if self.previous_state is not None and self.previous_action is not None:
-            reward = power_reward + wait_queue_penalty  #reward function
+            #reward function
+            reward = power_reward + wait_queue_penalty + TBT_penalty
             self.reward_arr.append(reward)
             self._update_q_table(self.previous_state, self.previous_action,
                                  reward, state)
