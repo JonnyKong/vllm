@@ -108,7 +108,7 @@ class NvmlPowerMonitor:
             self.logs = []
 
 
-def start_nvml_monitor(
+def start_nvml_power_monitor(
         interval: float,
         csv_filename: str,
         log_interval=1,
@@ -128,7 +128,7 @@ def measure_power(csv_filename,
                   log_interval=1,
                   enable_mem_freq_meas=False,
                   power_queue: Optional[multiprocessing.SimpleQueue] = None):
-    process = multiprocessing.Process(target=start_nvml_monitor,
+    process = multiprocessing.Process(target=start_nvml_power_monitor,
                                       args=(interval, csv_filename,
                                             log_interval, enable_mem_freq_meas,
                                             power_queue))

@@ -47,8 +47,11 @@ from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
-from vllm.platforms.nvml_freq_modulator import NvmlFreqModulator
-from vllm.platforms.nvml_power_monitor import start_nvml_monitor
+from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
+    NvmlFreqModulator)
+from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator_factory import (
+    nvml_freq_modulator_factory)
+from vllm.platforms.nvml_power_monitor import start_nvml_power_monitor
 from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
@@ -401,7 +404,7 @@ class LLMEngine:
         self.power_monitor_process: Optional[multiprocessing.Process] = None
         if self.observability_config.collect_power_usage:
             self.power_monitor_process = multiprocessing.Process(
-                target=start_nvml_monitor,
+                target=start_nvml_power_monitor,
                 kwargs={
                     'interval': 0.01,
                     'csv_filename': f"{vllm_config.log_dir}/power_log.csv",
@@ -412,7 +415,7 @@ class LLMEngine:
 
         self.freq_modulator: Optional[NvmlFreqModulator] = None
         if vllm_config.enable_freq_mod:
-            self.freq_modulator = NvmlFreqModulator.create_from_config(
+            self.freq_modulator = nvml_freq_modulator_factory(
                 vllm_config, self)
 
         self.idle_time_injector: Optional[IdleTimeInjector] = None

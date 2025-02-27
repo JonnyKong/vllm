@@ -3066,6 +3066,7 @@ class VllmConfig:
     log_dir: Optional[str] = None
     enable_freq_mod: bool = False
     freq_mod_mode: Optional[str] = None
+    pretrained_rl_model_path: Optional[str] = None
     enable_idle_time_injection: bool = False
     enable_circuit_breaker: bool = False
 

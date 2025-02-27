@@ -206,6 +206,7 @@ class EngineArgs:
     log_dir: str = "./logs"
     enable_freq_mod: bool = False
     freq_mod_mode: Optional[str] = None
+    pretrained_rl_model_path: Optional[str] = None
     enable_idle_time_injection: bool = False
     enable_circuit_breaker: bool = False
 
@@ -1001,6 +1002,10 @@ class EngineArgs:
                             choices=['rule', 'value-iter', 'q-learn'],
                             default=EngineArgs.freq_mod_mode)
 
+        parser.add_argument('--pretrained-rl-model-path',
+                            type=str,
+                            default=EngineArgs.pretrained_rl_model_path)
+
         parser.add_argument('--enable-idle-time-injection',
                             action='store_true',
                             default=EngineArgs.enable_idle_time_injection)
@@ -1317,6 +1322,7 @@ class EngineArgs:
             log_dir=self.log_dir,
             enable_freq_mod=self.enable_freq_mod,
             freq_mod_mode=self.freq_mod_mode,
+            pretrained_rl_model_path=self.pretrained_rl_model_path,
             enable_idle_time_injection=self.enable_idle_time_injection,
             enable_circuit_breaker=self.enable_circuit_breaker,
         )
