@@ -399,7 +399,8 @@ class LLMEngine:
                                                      self.cache_config)
 
         self.power_usage_queue: Optional[multiprocessing.SimpleQueue] = None
-        if vllm_config.freq_mod_mode == 'q-learn':
+        if vllm_config.freq_mod_mode == 'q-learn' or \
+           vllm_config.freq_mod_mode == 'dqn':
             self.power_usage_queue = multiprocessing.SimpleQueue()
         self.power_monitor_process: Optional[multiprocessing.Process] = None
         if self.observability_config.collect_power_usage:
