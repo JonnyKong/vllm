@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import math
 import multiprocessing
 import random
 import time
@@ -23,9 +24,9 @@ class DQN(nn.Module):
 
     def __init__(self, state_size, action_size):
         super().__init__()
-        self.fc1 = nn.Linear(state_size, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, action_size)
+        self.fc1 = nn.Linear(state_size, 16)
+        self.fc2 = nn.Linear(16, 16)
+        self.fc3 = nn.Linear(16, action_size)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -46,7 +47,9 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                  gpu_tdp: int = 300,
                  alpha: float = 0.001,
                  gamma: float = 0.9,
-                 epsilon: float = 0.1,
+                 epsilon_start: float = 1.0,
+                 epsilon_end: float = 0.1,
+                 epsilon_decay_steps: int = 1000,
                  memory_size: int = 10000,
                  batch_size: int = 64,
                  target_update: int = 10,
@@ -57,7 +60,9 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         self.alpha = alpha  # Learning rate
 
         self.gamma = gamma  # Discount factor
-        self.epsilon = epsilon  # Exploration rate
+        self.epsilon_start = epsilon_start  # Initial exploration rate
+        self.epsilon_end = epsilon_end  # Final exploration rate
+        self.epsilon_decay_steps = epsilon_decay_steps  # Steps to decay epsilon
         self.batch_size = batch_size
         self.target_update = target_update
         self.memory: deque = deque(maxlen=memory_size)
@@ -76,6 +81,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         self.optimizer = optim.Adam(self.policy_net.parameters(),
                                     lr=self.alpha)
         self.loss_fn = nn.MSELoss()
+        self.epsilon = self.epsilon_start
 
         self.previous_state: Optional[np.ndarray] = None
         self._load_model()
@@ -109,6 +115,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                 'step_id': self.step_id,
                 'state': state,
                 'action': action,
+                'epsilon': self.epsilon,
                 **reward_dict,
                 'reward_total': reward,
             })
@@ -119,6 +126,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
 
         self.step_id += 1
         self.previous_state = state
+        self._update_epsilon()
 
         return self.freq_choices[action]
 
@@ -183,6 +191,11 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         model_path = Path(self.log_dir) / 'dqn_model.pth'
         torch.save(self.policy_net.state_dict(), model_path)
         logger.info('Model saved to: %s', model_path)
+
+    def _update_epsilon(self):
+        self.epsilon = self.epsilon_end + (
+            (self.epsilon_start - self.epsilon_end) *
+            math.exp(-self.step_id / self.epsilon_decay_steps))
 
     def __del__(self):
         torch.save(self.policy_net.state_dict(),
