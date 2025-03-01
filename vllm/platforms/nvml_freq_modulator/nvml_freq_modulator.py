@@ -63,14 +63,10 @@ class NvmlFreqModulator(ABC):
         """
         Extract states potentially usable by RL.
         """
-        # TBT
         tbt_arr = []
-        for s in self.stats_buffer:
-            tbt_arr.extend(s.time_per_output_tokens_iter)
-
-        # Num tokens decoded
         num_tokens_decoded = 0
         for s in self.stats_buffer:
+            tbt_arr.extend(s.time_per_output_tokens_iter)
             num_tokens_decoded += len(s.time_to_first_tokens_iter)
             num_tokens_decoded += len(s.time_per_output_tokens_iter)
 
