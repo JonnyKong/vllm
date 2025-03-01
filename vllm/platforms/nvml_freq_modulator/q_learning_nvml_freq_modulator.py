@@ -3,7 +3,7 @@ import asyncio
 import multiprocessing
 from abc import abstractmethod
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -40,8 +40,8 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         self.pretrained_rl_model_path = pretrained_rl_model_path
         self.gpu_tdp = gpu_tdp
 
-        # [time, step, state, action, reward] at each step
-        self.rl_history: List[List] = []
+        # Stats related to Rl at each step
+        self.rl_history: List[Dict] = []
 
         # RL step number
         self.step_id = 0
@@ -73,9 +73,7 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         log_file = Path(log_file)
         append_mode = log_file.exists()
 
-        df = pd.DataFrame(
-            self.rl_history,
-            columns=['time', 'step', 'state', 'action', 'reward'])
+        df = pd.DataFrame(self.rl_history)
 
         await asyncio.to_thread(
             df.to_csv,

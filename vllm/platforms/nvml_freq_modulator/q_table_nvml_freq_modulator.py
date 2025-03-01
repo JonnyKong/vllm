@@ -54,10 +54,11 @@ class QTableFreqModulator(QLearningNvmlFreqModulator):
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
-        mean_power_usage = self.get_latest_power_reading()
+        sys_stats['mean_power_usage'] = self.get_latest_power_reading()
 
         state = self.get_state(sys_stats)
-        reward = self.get_reward(sys_stats, mean_power_usage)
+        reward_dict = self.get_reward_dict(sys_stats)
+        reward = sum(reward_dict.values())
 
         if self.previous_state is not None and self.previous_action is not None:
             self._update_q_table(self.previous_state, self.previous_action,
@@ -67,8 +68,18 @@ class QTableFreqModulator(QLearningNvmlFreqModulator):
         self.previous_state = state
         self.previous_action = action
 
-        self.rl_history.append(
-            [time.perf_counter(), self.step_id, state, action, reward])
+        if self.save_rl_history:
+            self.rl_history.append({
+                'time': time.perf_counter(),
+                'step_id': self.step_id,
+                'state': state,
+                'action': action,
+                **reward_dict,
+                'reward_total': reward,
+            })
+            # Save reward history periodically
+            if self.step_id % 10 == 0:
+                self._save_rewards(Path(self.log_dir) / 'rewards.csv')
 
         if not self.save_rl_history:
             log_file = Path(self.log_dir) / 'q_learning.csv'
@@ -77,21 +88,20 @@ class QTableFreqModulator(QLearningNvmlFreqModulator):
                     / f'q_learning_{self.step_id:06d}.csv'
         asyncio.create_task(asyncio.to_thread(self._save_q_table, log_file))
 
-        # Save reward history periodically
-        if self.step_id % 10 == 0:
-            self._save_rewards(Path(self.log_dir) / 'rewards.csv')
-
         self.step_id += 1
         return self.freq_choices[action]
 
-    def get_reward(self, sys_stats: Dict, mean_power_usage: float) -> float:
+    def get_reward_dict(self, sys_stats: Dict) -> Dict[str, float]:
         # TODO, check if penalty should be higher or lower
         wait_queue_penalty = -1.0 if len(
             self.llm_engine.scheduler[0].waiting) > 5 else 0.0
-        power_reward = 2.0 - mean_power_usage / self.gpu_tdp
+        power_reward = 2.0 - sys_stats['mean_power_usage'] / self.gpu_tdp
         tbt_penalty = -10.0 if sys_stats['tbt_mean'] > self.tbt_slo else 0.0
-        reward = power_reward + wait_queue_penalty + tbt_penalty
-        return reward
+        return {
+            'power_reward': power_reward,
+            'wait_queue_penalty': wait_queue_penalty,
+            'tbt_penalty': tbt_penalty,
+        }
 
     def _select_action(self, state: float) -> int:
         if random.uniform(0, 1) < self.epsilon and state != 1.0:

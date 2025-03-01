@@ -4,7 +4,7 @@ import random
 import time
 from collections import deque
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -77,29 +77,24 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                                     lr=self.alpha)
         self.loss_fn = nn.MSELoss()
 
+        self.previous_state: Optional[np.ndarray] = None
         self._load_model()
 
     def adjust(self) -> int:
         sys_stats = self.get_sys_stats()
-        mean_power_usage = self.get_latest_power_reading()
+        sys_stats['mean_power_usage'] = self.get_latest_power_reading()
 
-        state = np.array([sys_stats['gpu_kv_cache_usage']], dtype=np.float32)
-        state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
+        state = self._get_state(sys_stats)
+        action = self._select_action(state)
+        reward_dict = self._get_reward_dict(sys_stats)
+        reward = sum(reward_dict.values())
 
-        action = self._select_action(state_tensor)
+        if self.previous_state is not None:
+            self.memory.append((self.previous_state, action, reward, state))
 
-        power_reward = 2 - mean_power_usage / self.gpu_tdp
-        wait_queue_penalty = -1 if len(
-            self.llm_engine.scheduler[0].waiting) > 5 else 0
-        tbt_penalty = -10 if sys_stats['tbt_mean'] > self.tbt_slo else 0
-        reward = power_reward + wait_queue_penalty + tbt_penalty
-
-        next_state = np.array([sys_stats['gpu_kv_cache_usage']],
-                              dtype=np.float32)
-        self.memory.append((state, action, reward, next_state))
-
-        with timeit('DQN optimize'):
-            self._optimize_model()
+        if len(self.memory) >= self.batch_size:
+            with timeit('DQN optimize'):
+                self._optimize_model()
 
         if self.step_id % self.target_update == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
@@ -108,42 +103,63 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
             with timeit('DQN save model'):
                 self._save_model()
 
-        # Save reward history periodically
-        self.rl_history.append(
-            [time.perf_counter(), self.step_id, state, action, reward])
-        if self.step_id % 10 == 0:
-            with timeit('DQN save rewards'):
-                self._save_rewards(Path(self.log_dir) / 'rewards.csv')
+        if self.save_rl_history:
+            self.rl_history.append({
+                'time': time.perf_counter(),
+                'step_id': self.step_id,
+                'state': state,
+                'action': action,
+                **reward_dict,
+                'reward_total': reward,
+            })
+            # Save reward history periodically
+            if self.step_id % 10 == 0:
+                with timeit('DQN save rewards'):
+                    self._save_rewards(Path(self.log_dir) / 'rewards.csv')
 
         self.step_id += 1
+        self.previous_state = state
 
         return self.freq_choices[action]
 
-    def _select_action(self, state_tensor):
+    def _get_state(self, sys_stats: Dict):
+        state = np.array([sys_stats['gpu_kv_cache_usage']], dtype=np.float32)
+        return state
+
+    def _select_action(self, state: np.ndarray):
+        state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
         if random.uniform(0, 1) < self.epsilon:
             return random.randint(0, self.action_size - 1)
         with torch.no_grad():
             return self.policy_net(state_tensor).argmax().item()
 
+    def _get_reward_dict(self, sys_stats: Dict) -> Dict[str, float]:
+        power_reward = 2 - sys_stats['mean_power_usage'] / self.gpu_tdp
+        wait_queue_penalty = (-1 if len(self.llm_engine.scheduler[0].waiting)
+                              > 5 else 0)
+        tbt_penalty = -10 if sys_stats['tbt_mean'] > self.tbt_slo else 0
+        return {
+            'power_reward': power_reward,
+            'wait_queue_penalty': wait_queue_penalty,
+            'tbt_penalty': tbt_penalty,
+        }
+
     def _optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return
-
         batch = random.sample(self.memory, self.batch_size)
-        states, actions, rewards, next_states = zip(*batch)
+        previous_states, actions, rewards, states = zip(*batch)
 
-        states = torch.tensor(states, device=self.device, dtype=torch.float32)
+        previous_states = torch.tensor(previous_states,
+                                       device=self.device,
+                                       dtype=torch.float32)
         actions = torch.tensor(actions, device=self.device,
                                dtype=torch.int64).unsqueeze(1)
         rewards = torch.tensor(rewards,
                                device=self.device,
                                dtype=torch.float32).unsqueeze(1)
-        next_states = torch.tensor(next_states,
-                                   device=self.device,
-                                   dtype=torch.float32)
+        states = torch.tensor(states, device=self.device, dtype=torch.float32)
 
-        q_values = self.policy_net(states).gather(1, actions)
-        next_q_values = self.target_net(next_states).max(1, keepdim=True)[0]
+        q_values = self.policy_net(previous_states).gather(1, actions)
+        next_q_values = self.target_net(states).max(1, keepdim=True)[0]
         target_q_values = rewards + self.gamma * next_q_values
 
         loss = self.loss_fn(q_values, target_q_values.detach())
