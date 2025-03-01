@@ -2,6 +2,8 @@
 import contextlib
 import os
 import threading
+import time
+from contextlib import contextmanager
 
 import pynvml
 
@@ -84,3 +86,14 @@ def _get_gpu_handles():
     else:
         gpu_indices = list(range(pynvml.nvmlDeviceGetCount()))
     return [pynvml.nvmlDeviceGetHandleByIndex(i) for i in gpu_indices]
+
+
+@contextmanager
+def timeit(name='Unnamed code block'):
+    start_time = time.perf_counter()
+    try:
+        yield
+    finally:
+        end_time = time.perf_counter()
+        elapsed_time = end_time - start_time
+        logger.info('%s executed in %f seconds', name, elapsed_time)

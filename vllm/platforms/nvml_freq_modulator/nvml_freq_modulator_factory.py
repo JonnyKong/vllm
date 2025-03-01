@@ -5,7 +5,7 @@ from vllm.config import VllmConfig
 
 from .dqn_nvml_freq_modulator import DQNNvmlFreqModulator
 from .nvml_freq_modulator import NvmlFreqModulator
-from .q_learning_nvml_freq_modulator import QLearningNvmlFreqModulator
+from .q_table_nvml_freq_modulator import QTableFreqModulator
 from .rule_based_freq_modulator import RuleBasedNvmlFreqModulator
 from .value_iter_freq_modulator import ValueIterationNvmlFreqModulator
 
@@ -32,14 +32,15 @@ def nvml_freq_modulator_factory(config: VllmConfig,
         a40_freq_choices = [
             540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
         ]
-        return QLearningNvmlFreqModulator(
+        return QTableFreqModulator(
             llm_engine,
             interval_s=interval_s,
             freq_choices=a40_freq_choices,
-            log_dir=config.log_dir,
             power_usage_queue=llm_engine.power_usage_queue,
-            pretrained_rl_model_path=config.pretrained_rl_model_path,
+            log_dir=config.log_dir,
             save_rl_history=True,
+            pretrained_rl_model_path=config.pretrained_rl_model_path,
+            gpu_tdp=300,
             epsilon=0.01,
             tbt_slo=0.250)
     elif config.freq_mod_mode == 'dqn':
@@ -51,10 +52,12 @@ def nvml_freq_modulator_factory(config: VllmConfig,
             llm_engine,
             interval_s=interval_s,
             freq_choices=a40_freq_choices,
-            log_dir=config.log_dir,
             power_usage_queue=llm_engine.power_usage_queue,
+            log_dir=config.log_dir,
             save_rl_history=True,
-            TBT_SLO=0.250)
+            pretrained_rl_model_path=config.pretrained_rl_model_path,
+            gpu_tdp=300,
+            tbt_slo=0.250)
     else:
         raise NotImplementedError(
             f'Unrecognized freq_mod_mode: {llm_engine.freq_mod_mode}')
