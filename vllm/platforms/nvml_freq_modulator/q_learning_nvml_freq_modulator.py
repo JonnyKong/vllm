@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import asyncio
 import multiprocessing
 from abc import abstractmethod
 from pathlib import Path
@@ -45,6 +46,8 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         # RL step number
         self.step_id = 0
 
+        (Path(self.log_dir) / 'rewards.csv').unlink(missing_ok=True)
+
     @abstractmethod
     def adjust(self) -> int:
         pass
@@ -57,7 +60,31 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         return mean_power_usage
 
     def _save_rewards(self, log_file: Union[str, Path]):
+        """Non-blocking method to trigger async saving."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._save_rewards_async(log_file))
+        except RuntimeError:
+            # No event loop running; run the async function synchronously
+            asyncio.run(self._save_rewards_async(log_file))
+
+    async def _save_rewards_async(self, log_file: Union[str, Path]):
+        """Asynchronously appends new rewards to the CSV file."""
+        log_file = Path(log_file)
+        append_mode = log_file.exists()
+
         df = pd.DataFrame(
             self.rl_history,
             columns=['time', 'step', 'state', 'action', 'reward'])
-        df.to_csv(log_file, index=False)
+
+        await asyncio.to_thread(
+            df.to_csv,
+            log_file,
+            mode='a',
+            index=False,
+            # Write header only if the file does not exist
+            header=not append_mode,
+        )
+
+        # Clear memory after writing
+        self.rl_history.clear()

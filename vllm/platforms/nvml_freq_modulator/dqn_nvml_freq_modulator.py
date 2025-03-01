@@ -80,43 +80,44 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         self._load_model()
 
     def adjust(self) -> int:
-        with timeit('DQN step'):
-            sys_stats = self.get_sys_stats()
-            mean_power_usage = self.get_latest_power_reading()
+        sys_stats = self.get_sys_stats()
+        mean_power_usage = self.get_latest_power_reading()
 
-            state = np.array([sys_stats['gpu_kv_cache_usage']],
-                             dtype=np.float32)
-            state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
+        state = np.array([sys_stats['gpu_kv_cache_usage']], dtype=np.float32)
+        state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
 
-            action = self._select_action(state_tensor)
+        action = self._select_action(state_tensor)
 
-            power_reward = 2 - mean_power_usage / self.gpu_tdp
-            wait_queue_penalty = -1 if len(
-                self.llm_engine.scheduler[0].waiting) > 5 else 0
-            tbt_penalty = -10 if sys_stats['tbt_mean'] > self.tbt_slo else 0
-            reward = power_reward + wait_queue_penalty + tbt_penalty
+        power_reward = 2 - mean_power_usage / self.gpu_tdp
+        wait_queue_penalty = -1 if len(
+            self.llm_engine.scheduler[0].waiting) > 5 else 0
+        tbt_penalty = -10 if sys_stats['tbt_mean'] > self.tbt_slo else 0
+        reward = power_reward + wait_queue_penalty + tbt_penalty
 
-            next_state = np.array([sys_stats['gpu_kv_cache_usage']],
-                                  dtype=np.float32)
-            self.memory.append((state, action, reward, next_state))
+        next_state = np.array([sys_stats['gpu_kv_cache_usage']],
+                              dtype=np.float32)
+        self.memory.append((state, action, reward, next_state))
 
+        with timeit('DQN optimize'):
             self._optimize_model()
 
-            if self.step_id % self.target_update == 0:
-                self.target_net.load_state_dict(self.policy_net.state_dict())
+        if self.step_id % self.target_update == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
 
-            if self.step_id % 100 == 0:
+        if self.step_id % 100 == 0:
+            with timeit('DQN save model'):
                 self._save_model()
 
-            # Save reward history periodically
-            self.rl_history.append(
-                [time.perf_counter(), self.step_id, state, action, reward])
-            if self.step_id % 10 == 0:
+        # Save reward history periodically
+        self.rl_history.append(
+            [time.perf_counter(), self.step_id, state, action, reward])
+        if self.step_id % 10 == 0:
+            with timeit('DQN save rewards'):
                 self._save_rewards(Path(self.log_dir) / 'rewards.csv')
 
-            self.step_id += 1
+        self.step_id += 1
 
-            return self.freq_choices[action]
+        return self.freq_choices[action]
 
     def _select_action(self, state_tensor):
         if random.uniform(0, 1) < self.epsilon:
