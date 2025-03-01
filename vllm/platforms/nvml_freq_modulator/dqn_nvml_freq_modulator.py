@@ -103,7 +103,8 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                 self._optimize_model()
 
         if self.step_id % self.target_update == 0:
-            self.target_net.load_state_dict(self.policy_net.state_dict())
+            with timeit('DQN copy policy net to target net'):
+                self.target_net.load_state_dict(self.policy_net.state_dict())
 
         if self.step_id % 100 == 0:
             with timeit('DQN save model'):

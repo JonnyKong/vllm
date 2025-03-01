@@ -96,4 +96,4 @@ def timeit(name='Unnamed code block'):
     finally:
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
-        logger.info('%s executed in %f seconds', name, elapsed_time)
+        logger.info('[%s] execution time: %f', name, elapsed_time)
