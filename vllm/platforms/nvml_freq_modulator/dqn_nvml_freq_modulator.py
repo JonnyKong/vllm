@@ -5,7 +5,7 @@ import random
 import time
 from collections import deque
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -91,7 +91,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         sys_stats['mean_power_usage'] = self.get_latest_power_reading()
 
         state = self._get_state(sys_stats)
-        action = self._select_action(state)
+        action, is_explore = self._select_action(state)
         reward_dict = self._get_reward_dict(sys_stats)
         reward = sum(reward_dict.values())
 
@@ -116,6 +116,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                 'step_id': self.step_id,
                 'state': state,
                 'action': action,
+                'is_explore': is_explore,
                 'epsilon': self.epsilon,
                 **reward_dict,
                 'reward_total': reward,
@@ -135,12 +136,16 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         state = np.array([sys_stats['gpu_kv_cache_usage']], dtype=np.float32)
         return state
 
-    def _select_action(self, state: np.ndarray):
+    def _select_action(self, state: np.ndarray) -> Tuple[int, bool]:
         state_tensor = torch.tensor(state, device=self.device).unsqueeze(0)
         if random.uniform(0, 1) < self.epsilon:
-            return random.randint(0, self.action_size - 1)
-        with torch.no_grad():
-            return self.policy_net(state_tensor).argmax().item()
+            action = random.randint(0, self.action_size - 1)
+            is_explore = True
+        else:
+            with torch.no_grad():
+                action = self.policy_net(state_tensor).argmax().item()
+            is_explore = False
+        return action, is_explore
 
     def _get_reward_dict(self, sys_stats: Dict) -> Dict[str, float]:
         power_reward = 2 - sys_stats['mean_power_usage'] / self.gpu_tdp
