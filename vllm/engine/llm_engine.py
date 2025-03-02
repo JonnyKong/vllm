@@ -426,7 +426,8 @@ class LLMEngine:
 
         self.circuit_breaker: Optional[CircuitBreaker] = None
         if vllm_config.enable_circuit_breaker:
-            self.circuit_breaker = SimpleCircuitBreaker(self)
+            self.circuit_breaker = SimpleCircuitBreaker(
+                self, mode='gpu_kv_cache_util')
 
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:
