@@ -22,13 +22,18 @@ class CircuitBreaker(ABC):
 
 
 class SimpleCircuitBreaker(CircuitBreaker):
-    THRESH_LOW = 0.8
-    THRESH_HIGH = 1.10
 
-    def __init__(self, llm_engine, mode: str):
+    def __init__(self,
+                 llm_engine,
+                 mode: str,
+                 thresh_low: float = 0.9,
+                 thresh_high: float = 0.98):
         super().__init__(llm_engine)
         assert mode in ['running_queue_util', 'gpu_kv_cache_util']
+
         self.mode = mode
+        self.thresh_low = thresh_low
+        self.thresh_high = thresh_high
 
     def step(self):
         if self.mode == 'running_queue_util':
@@ -38,14 +43,19 @@ class SimpleCircuitBreaker(CircuitBreaker):
         else:
             raise NotImplementedError()
 
-        if not self._is_tripped and util > self.THRESH_HIGH:
+        if not self._is_tripped and util > self.thresh_high:
             self._is_tripped = True
             logger.info("Circuit breaker tripped")
-        elif self._is_tripped and util < self.THRESH_LOW:
+        elif self._is_tripped and util < self.thresh_low:
             self._is_tripped = False
             logger.info("Circuit breaker reset")
 
     def get_running_queue_util(self):
+        """
+        The utilization is calculated as the ratio of the total number of
+        running and waiting sequences, to the maximum number of sequences
+        allowed across all schedulers, and therefore can go beyond 100%.
+        """
         num_running = sum(
             len(scheduler.running) for scheduler in self.llm_engine.scheduler)
         num_waiting = sum(
