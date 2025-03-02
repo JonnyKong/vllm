@@ -46,7 +46,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                  pretrained_rl_model_path: Optional[str] = None,
                  gpu_tdp: int = 300,
                  alpha: float = 0.001,
-                 gamma: float = 0.9,
+                 gamma: float = 0.99,
                  epsilon_start: float = 1.0,
                  epsilon_end: float = 0.01,
                  epsilon_decay_steps: int = 1000,
@@ -207,7 +207,12 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                         self.pretrained_rl_model_path)
 
     def _save_model(self):
-        model_path = Path(self.log_dir) / 'dqn_model.pth'
+        if self.save_rl_history:
+            model_path = (Path(self.log_dir) / 'dqn_models' /
+                          f'dqn_model_{self.step_id:06d}.pth')
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            model_path = Path(self.log_dir) / 'dqn_model.pth'
         torch.save(self.policy_net.state_dict(), model_path)
         logger.info('Model saved to: %s', model_path)
 
