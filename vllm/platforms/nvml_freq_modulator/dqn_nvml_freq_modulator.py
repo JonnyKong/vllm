@@ -48,7 +48,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                  alpha: float = 0.001,
                  gamma: float = 0.9,
                  epsilon_start: float = 1.0,
-                 epsilon_end: float = 0.1,
+                 epsilon_end: float = 0.01,
                  epsilon_decay_steps: int = 1000,
                  memory_size: int = 10000,
                  batch_size: int = 64,
@@ -84,6 +84,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         self.epsilon = self.epsilon_start
 
         self.previous_state: Optional[np.ndarray] = None
+        self.latest_loss: Optional[float] = None
         self._load_model()
 
     def adjust(self) -> int:
@@ -95,12 +96,18 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         reward_dict = self._get_reward_dict(sys_stats)
         reward = sum(reward_dict.values())
 
+        if (self.llm_engine.circuit_breaker
+                and self.llm_engine.circuit_breaker.is_tripped):
+            # If circuit breaker tripped, use highest frequency and do not learn
+            self.previous_state = state
+            return max(self.freq_choices)
+
         if self.previous_state is not None:
             self.memory.append((self.previous_state, action, reward, state))
 
         if len(self.memory) >= self.batch_size:
             with timeit('DQN optimize'):
-                self._optimize_model()
+                self.latest_loss = self._optimize_model()
 
         if self.step_id % self.target_update == 0:
             with timeit('DQN copy policy net to target net'):
@@ -118,6 +125,7 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
                 'action': action,
                 'is_explore': is_explore,
                 'epsilon': self.epsilon,
+                'latest_loss': self.latest_loss,
                 **reward_dict,
                 'reward_total': reward,
             })
@@ -158,7 +166,10 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
             'tbt_penalty': tbt_penalty,
         }
 
-    def _optimize_model(self):
+    def _optimize_model(self) -> float:
+        """
+        Optimize the model and return the loss value.
+        """
         batch = random.sample(self.memory, self.batch_size)
         previous_states, actions, rewards, states = zip(*batch)
 
@@ -180,6 +191,8 @@ class DQNNvmlFreqModulator(QLearningNvmlFreqModulator):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        return loss.item()
 
     def _load_model(self):
         if self.pretrained_rl_model_path is not None \
