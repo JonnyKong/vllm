@@ -27,13 +27,17 @@ class SimpleCircuitBreaker(CircuitBreaker):
                  llm_engine,
                  mode: str,
                  thresh_low: float = 0.9,
-                 thresh_high: float = 0.98):
+                 thresh_high: float = 0.98,
+                 trigger_count_threshold: int = 100):
         super().__init__(llm_engine)
         assert mode in ['running_queue_util', 'gpu_kv_cache_util']
 
         self.mode = mode
         self.thresh_low = thresh_low
         self.thresh_high = thresh_high
+        self.trigger_count_threshold = trigger_count_threshold
+
+        self.trigger_count = 0
 
     def step(self):
         if self.mode == 'running_queue_util':
@@ -44,11 +48,15 @@ class SimpleCircuitBreaker(CircuitBreaker):
             raise NotImplementedError()
 
         if not self._is_tripped and util > self.thresh_high:
-            self._is_tripped = True
-            logger.info("Circuit breaker tripped")
-        elif self._is_tripped and util < self.thresh_low:
-            self._is_tripped = False
-            logger.info("Circuit breaker reset")
+            self.trigger_count += 1
+            if self.trigger_count >= self.trigger_count_threshold:
+                self._is_tripped = True
+                logger.info("Circuit breaker tripped")
+        elif util < self.thresh_low:
+            self.trigger_count = 0
+            if self._is_tripped:
+                self._is_tripped = False
+                logger.info("Circuit breaker reset")
 
     def get_running_queue_util(self):
         """
