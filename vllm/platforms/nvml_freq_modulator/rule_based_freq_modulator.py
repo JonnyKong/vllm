@@ -12,10 +12,8 @@ class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
         super().__init__(llm_engine, interval_s)
 
     frequency_table = {
-        (0.0, 0.2): 825,
-        (0.2, 0.5): 1125,
-        (0.5, 0.9): 1440,
-        (0.9, 1.0): 1740,
+        (0.0, 0.2): 1425,
+        (0.2, 1.0): 1440,
     }
 
     def adjust(self) -> int:
