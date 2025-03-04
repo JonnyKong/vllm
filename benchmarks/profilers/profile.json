@@ -1,0 +1,169 @@
+[
+    {
+        "latencies": [
+            2.6481296386718896,
+            2.6234384765621144,
+            2.621795654296875,
+            2.6220793457032414,
+            2.620867431640363,
+            2.6214201660159233,
+            2.6220026855471588
+        ],
+        "frequency": 210,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 245,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 2122790,
+        "max_prefill_len": 0,
+        "max_decode_len": 16023,
+        "std_prefill_len": 0,
+        "std_decode_len": 4392.82970054715
+    },
+    {
+        "latencies": [
+            1.2269389648436118,
+            1.2036960449222533,
+            1.2039445800783142,
+            1.2035825195316647,
+            1.2036708984378492,
+            1.2038287353516353,
+            1.2036037597654285
+        ],
+        "frequency": 465,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 327,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 1972831,
+        "max_prefill_len": 0,
+        "max_decode_len": 10400,
+        "std_prefill_len": 0,
+        "std_decode_len": 2579.083076228602
+    },
+    {
+        "latencies": [
+            0.7774990844727654,
+            0.7557697143556652,
+            0.7557843017575578,
+            0.7557761840816966,
+            0.7557826538086374,
+            0.7556187133786807,
+            0.7563737182617842
+        ],
+        "frequency": 735,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 327,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 1910584,
+        "max_prefill_len": 0,
+        "max_decode_len": 7146,
+        "std_prefill_len": 0,
+        "std_decode_len": 725.4193996635751
+    },
+    {
+        "latencies": [
+            0.1928883819582552,
+            0.18050271606443857,
+            0.17996890258746134,
+            0.1797630462642701,
+            0.17972476196246134,
+            0.1798367309565947,
+            0.17959776306179265
+        ],
+        "frequency": 990,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 200,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 310568,
+        "max_prefill_len": 0,
+        "max_decode_len": 2745,
+        "std_prefill_len": 0,
+        "std_decode_len": 717.7061616009717
+    },
+    {
+        "latencies": [
+            0.37151147460917855,
+            0.3567908935547166,
+            0.3569437561036466,
+            0.3567567443851658,
+            0.35683734130816447,
+            0.35678894042939646,
+            0.35671652221662953
+        ],
+        "frequency": 1260,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 130,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 1489473,
+        "max_prefill_len": 0,
+        "max_decode_len": 14424,
+        "std_prefill_len": 0,
+        "std_decode_len": 1754.0119473087336
+    },
+    {
+        "latencies": [
+            0.07886669158961013,
+            0.07150102233845246,
+            0.07144771575894993,
+            0.07131452941939642,
+            0.07149324798592716,
+            0.07142883300821268,
+            0.07141465759286802,
+            0.07129555511437502,
+            0.07122544097910577,
+            0.07116419219983072,
+            0.07105862426760723,
+            0.07107756805453391,
+            0.07131571197533049,
+            0.07130287933341606
+        ],
+        "frequency": 1515,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 2,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 19517,
+        "max_prefill_len": 0,
+        "max_decode_len": 10382,
+        "std_prefill_len": 0,
+        "std_decode_len": 623.5
+    },
+    {
+        "latencies": [
+            0.36189743041995825,
+            0.34017541503908433,
+            0.34968383789055224,
+            0.34674240112326515,
+            0.3489676208491801,
+            0.3520446472166441,
+            0.34604788207980164
+        ],
+        "frequency": 1785,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 389,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 1219112,
+        "max_prefill_len": 0,
+        "max_decode_len": 5777,
+        "std_prefill_len": 0,
+        "std_decode_len": 1584.2690070257884
+    },
+    {
+        "latencies": [
+            0.4717074279787994,
+            0.4509830627439442,
+            0.46585800170942093,
+            0.4546051330562477,
+            0.46346340942363895,
+            0.4581284484866046,
+            0.4621256713862749
+        ],
+        "frequency": 2040,
+        "prefill_batch_size": 0,
+        "decode_batch_size": 214,
+        "sum_prefill_len": 0,
+        "sum_decode_len": 2546534,
+        "max_prefill_len": 0,
+        "max_decode_len": 13214,
+        "std_prefill_len": 0,
+        "std_decode_len": 798.2296171559611
+    }
+]
