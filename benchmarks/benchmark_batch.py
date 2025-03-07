@@ -69,7 +69,10 @@ class BenchmarkBatchParam:
     decode_input_lens: List[int]
     log_dir: str
     gpu_freq_mhz: int
-    delay_time_s: float = 0.0  # Delay before issuing each batch.
+
+    # Delay before issuing each batch, drawn from uniform distribution
+    delay_time_min_s: float = 0.0
+    delay_time_max_s: float = 0.0
 
     # Run terminates when both reaches
     min_num_iters: int = 32
@@ -151,8 +154,10 @@ async def benchmark_batch(
                         # Insert new req
                         virtual_engine = requests_in_progress.index(task)
                         req = next(request_gen)
-                        if param.delay_time_s > 0:
-                            await asyncio.sleep(param.delay_time_s)
+                        if param.delay_time_max_s > 0:
+                            await asyncio.sleep(
+                                random.uniform(param.delay_time_min_s,
+                                               param.delay_time_max_s))
                         requests_in_progress[
                             virtual_engine] = asyncio.create_task(
                                 executor.execute_model_async(req))
@@ -261,8 +266,9 @@ if __name__ == '__main__':
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
     vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
-                 f"-tp {1} "
-                 f"-pp {2} "
+                 "-tp 1 -pp 1 "
+                 "--max-num-seqs 1024 --max-num-batched-tokens 8192 "
+                 "--disable-async-output-proc "
                  "--collect-detailed-traces worker").split()
     vllm_args = parser.parse_args(vllm_args)
 
@@ -270,8 +276,11 @@ if __name__ == '__main__':
         prefill_input_lens=[1024, 1024],
         decode_input_lens=[128 for _ in range(512)],
         log_dir='./logs',
-        gpu_freq_mhz=nvml_get_available_freq()[0],
-        delay_time_s=0.0,
+        gpu_freq_mhz=nvml_get_available_freq()[-1],
+        delay_time_min_s=0.005,
+        delay_time_max_s=0.020,
+        min_num_iters=1000,
+        min_seconds=0,
     )
 
     uvloop.run(benchmark_batch(vllm_args, [benchmark_batch_param]))

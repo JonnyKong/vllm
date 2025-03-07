@@ -98,7 +98,8 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
         decode_input_lens=decode_input_lens,
         log_dir=str(log_dir),
         gpu_freq_mhz=freq,
-        delay_time_s=0.0,
+        delay_time_min_s=0.0,
+        delay_time_max_s=0.0,
     )
 
 
