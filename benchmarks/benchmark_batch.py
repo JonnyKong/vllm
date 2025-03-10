@@ -69,6 +69,7 @@ class BenchmarkBatchParam:
     decode_input_lens: List[int]
     log_dir: str
     gpu_freq_mhz: int
+    gpu_power_meas_interval: float = 0.01
 
     # Delay before issuing each batch, drawn from uniform distribution
     delay_time_min_s: float = 0.0
@@ -136,7 +137,8 @@ async def benchmark_batch(
             energy_log = os.path.join(param.log_dir, 'power_log.csv')
             perf_log = os.path.join(param.log_dir, 'perf_metric.csv')
             with disable_python_gc(), \
-                    measure_power(energy_log), \
+                    measure_power(energy_log,
+                                  interval=param.gpu_power_meas_interval), \
                     log_perf_metric(perf_log) as perf_metric_logger, \
                     nvml_lock_freq(param.gpu_freq_mhz):
                 time_start = time.perf_counter()
@@ -277,9 +279,10 @@ if __name__ == '__main__':
         decode_input_lens=[128 for _ in range(512)],
         log_dir='./logs',
         gpu_freq_mhz=nvml_get_available_freq()[-1],
-        delay_time_min_s=0.005,
-        delay_time_max_s=0.020,
-        min_num_iters=1000,
+        gpu_power_meas_interval=0.001,
+        delay_time_min_s=1.0,
+        delay_time_max_s=1.0,
+        min_num_iters=100,
         min_seconds=0,
     )
 
