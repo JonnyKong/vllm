@@ -14,6 +14,16 @@ from vllm.logger import init_logger
 logger = init_logger(__name__)
 
 
+def get_nvml_metric_value(handle, field_id):
+    try:
+        metric = pynvml.nvmlDeviceGetFieldValues(handle, [field_id])[0]
+        if metric.nvmlReturn != pynvml.NVML_SUCCESS:
+            return 0  # Log power as 0 if NVML API returns an error
+        return metric.value.uiVal
+    except Exception:
+        return 0  # Log power as 0 if an exception occurs
+
+
 class NvmlPowerMonitor:
 
     def __init__(self,
@@ -68,8 +78,8 @@ class NvmlPowerMonitor:
                 readings = [timestamp]
                 total_power = 0
                 for handle in handles:
-                    power_usage = pynvml.nvmlDeviceGetPowerUsage(
-                        handle) / 1000.0
+                    power_usage = get_nvml_metric_value(
+                        handle, pynvml.NVML_FI_DEV_POWER_INSTANT) / 1000.0
                     freq = pynvml.nvmlDeviceGetClockInfo(
                         handle, pynvml.NVML_CLOCK_GRAPHICS)
                     readings.extend([power_usage, freq])
