@@ -83,7 +83,7 @@ class BenchmarkBatchParam:
 async def benchmark_batch(
     vllm_args: argparse.Namespace,
     params: Iterable[BenchmarkBatchParam],
-    latencies: Optional[List],
+    latencies: Optional[List] = None,
 ):
     """
     Feed executor with ExecuteModelRequest similar to how it's done in
@@ -153,13 +153,14 @@ async def benchmark_batch(
                         await asyncio.sleep(0)
                     for task in done:
                         output = task.result()
-                        if (latencies is not None):
-                            time_ranges = get_stats(
-                                llm, output
-                            ).batch_execute_timing_iter.time_ranges[0]
+                        stats = get_stats(llm, output)
+                        if latencies is not None:
+                            assert stats.batch_execute_timing_iter
+                            time_ranges = stats.batch_execute_timing_iter\
+                                    .time_ranges[0]
                             sample_latencies.append(time_ranges.end -
                                                     time_ranges.start)
-                        perf_metric_logger.log(get_stats(llm, output))
+                        perf_metric_logger.log(stats)
 
                         # Insert new req
                         virtual_engine = requests_in_progress.index(task)
@@ -184,7 +185,7 @@ async def benchmark_batch(
                 # Cleanup
                 _ = await asyncio.wait(requests_in_progress,
                                        return_when=asyncio.ALL_COMPLETED)
-                if (latencies is not None):
+                if latencies is not None:
                     latencies.append(sample_latencies)
 
 

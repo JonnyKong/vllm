@@ -3,15 +3,96 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from benchmark_batch import BenchmarkBatchParam
 from benchmark_batch_driver import yield_benchmark_power_profiling
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 
 def main():
-    for args in yield_benchmark_power_profiling(tp=1, pp=1):
-        df_perf = pd.read_csv(Path(args.log_dir) / 'perf_metric.csv')
-        df_power = pd.read_csv(Path(args.log_dir) / 'power_log.csv')
+    X, Y, freqs = load_data()
+    X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
+        train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
+
+    model = GradientBoostingRegressor(random_state=0).fit(X_train, Y_train)
+
+    # Predict on test set
+    Y_pred = model.predict(X_test)
+
+    # Compute absolute relative error
+    abs_rel_error = np.abs((Y_test - Y_pred) / Y_test)
+
+    # Store errors in a pandas DataFrame and analyze grouped by frequency
+    df_errors = pd.DataFrame({
+        'Frequency': freqs_test,
+        'Absolute Relative Error': abs_rel_error
+    })
+
+    grouped_errors = df_errors.groupby(
+        'Frequency')['Absolute Relative Error'].mean()
+    sample_counts = df_errors.groupby('Frequency').size()
+
+    for freq, mean_error in grouped_errors.items():
+        count = sample_counts[freq]
+        print(
+            f"Frequency {freq:.2f} MHz (Samples: {count}) MAE: {mean_error:.4f}"
+        )
+    print(
+        f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
+
+
+def load_data():
+    X = []
+    Y = []
+    freqs = []  # Store frequencies for grouping
+
+    print('Loading data ...')
+    for args in tqdm(list(yield_benchmark_power_profiling(tp=1, pp=1))):
+        perf_path = Path(args.log_dir) / 'perf_metric.csv'
+        power_path = Path(args.log_dir) / 'power_log.csv'
+
+        if not perf_path.exists() or not power_path.exists():
+            print(f"Skipping {args.log_dir}, missing required files.")
+            continue
+
+        feat = get_feat(args)
+        df_perf = pd.read_csv(perf_path)
+        df_power = pd.read_csv(power_path)
         power = compute_average_power(df_perf, df_power)
-        print(power)
+
+        X.append(feat)
+        freqs.append(feat[0])  # Store frequency value
+        Y.append(power)
+
+    return np.array(X), np.array(Y), np.array(freqs)
+
+
+def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
+    freq = float(p.gpu_freq_mhz)
+
+    prefill_batch_size = len(p.prefill_input_lens)
+    prefill_len_sum = np.sum(p.prefill_input_lens)
+    prefill_len_std = np.std(p.prefill_input_lens)
+    prefill_len_max = np.max(p.prefill_input_lens)
+
+    decode_batch_size = len(p.decode_input_lens)
+    decode_len_sum = np.sum(p.decode_input_lens)
+    decode_len_std = np.std(p.decode_input_lens)
+    decode_len_max = np.max(p.decode_input_lens)
+
+    return np.array([
+        freq,
+        prefill_batch_size,
+        prefill_len_sum,
+        prefill_len_std,
+        prefill_len_max,
+        decode_batch_size,
+        decode_len_sum,
+        decode_len_std,
+        decode_len_max,
+    ],
+                    dtype=np.float32)
 
 
 def filter_power_changes(df_power):
@@ -26,9 +107,8 @@ def filter_power_changes(df_power):
     indices_to_keep.append(last_kept_index)
 
     for i in range(1, len(df_power)):
-        time_diff = df_power.loc[i,
-                                 'Timestamp'] - df_power.loc[last_kept_index,
-                                                             'Timestamp']
+        time_diff = (df_power.loc[i, 'Timestamp'] -
+                     df_power.loc[last_kept_index, 'Timestamp'])
         power_changed = df_power.loc[i, 'GPU_0_power_w'] != df_power.loc[
             last_kept_index, 'GPU_0_power_w']
 
@@ -42,14 +122,14 @@ def filter_power_changes(df_power):
 def compute_average_power(df_perf, df_power) -> float:
     """
     Computes the average power per batch based on the following rules:
-    
+
     1. First, filter the power readings to only include rows where the GPU
     power value changes. If the time interval between readings deviates from
     100ms by more than ±20%, a warning is printed.
-    
+
     2. Determine whether all batch latencies are greater than 200ms. The
     latency of a batch is calculated as: `pp_rank_0_idle - pp_rank_0_start`.
-    
+
     3. If all batches have latencies greater than 200ms, compute the average
     power per batch by:
         - Extracting all power readings recorded within the batch duration from
@@ -58,7 +138,7 @@ def compute_average_power(df_perf, df_power) -> float:
         - Averaging the remaining power readings for each batch.
         - Taking the average of these per-batch power values to get the final
           result.
-    
+
     4. If any batch has a latency shorter than 200ms:
         - Consider all power readings from the start of the first batch to the
           end of the last batch.
