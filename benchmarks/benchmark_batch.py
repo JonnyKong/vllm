@@ -9,7 +9,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import tqdm
 import uvloop
@@ -83,6 +83,7 @@ class BenchmarkBatchParam:
 async def benchmark_batch(
     vllm_args: argparse.Namespace,
     params: Iterable[BenchmarkBatchParam],
+    latencies: Optional[List],
 ):
     """
     Feed executor with ExecuteModelRequest similar to how it's done in
@@ -143,6 +144,7 @@ async def benchmark_batch(
                     nvml_lock_freq(param.gpu_freq_mhz):
                 time_start = time.perf_counter()
                 iter = 0
+                sample_latencies = []
                 while True:
                     done, _ = await asyncio.wait(
                         requests_in_progress,
@@ -151,6 +153,12 @@ async def benchmark_batch(
                         await asyncio.sleep(0)
                     for task in done:
                         output = task.result()
+                        if (latencies is not None):
+                            time_ranges = get_stats(
+                                llm, output
+                            ).batch_execute_timing_iter.time_ranges[0]
+                            sample_latencies.append(time_ranges.end -
+                                                    time_ranges.start)
                         perf_metric_logger.log(get_stats(llm, output))
 
                         # Insert new req
@@ -176,6 +184,8 @@ async def benchmark_batch(
                 # Cleanup
                 _ = await asyncio.wait(requests_in_progress,
                                        return_when=asyncio.ALL_COMPLETED)
+                if (latencies is not None):
+                    latencies.append(sample_latencies)
 
 
 def build_dummy_execute_model_request(
