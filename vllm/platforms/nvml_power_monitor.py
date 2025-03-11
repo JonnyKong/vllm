@@ -4,7 +4,7 @@ import csv
 import multiprocessing
 import os
 import time
-from collections import deque
+from dataclasses import dataclass
 from typing import List, Optional
 
 import pynvml
@@ -24,6 +24,12 @@ def get_nvml_metric_value(handle, field_id):
         return 0  # Log power as 0 if an exception occurs
 
 
+@dataclass
+class PowerReading:
+    timestamp: float
+    total_power: float
+
+
 class NvmlPowerMonitor:
 
     def __init__(self,
@@ -39,7 +45,6 @@ class NvmlPowerMonitor:
         self.logs: List[List[float]] = []
         self.stop_monitoring = False
         self.power_queue = power_queue
-        self.power_readings: deque[float] = deque(maxlen=100)
 
     def monitor_power_and_freq(self):
         pynvml.nvmlInit()
@@ -90,12 +95,11 @@ class NvmlPowerMonitor:
                         readings.append(mem_freq)
 
                 self.logs.append(readings)
-                self.power_readings.append(total_power)
 
                 if self.power_queue is not None:
-                    avg_power = sum(self.power_readings) / len(
-                        self.power_readings)
-                    self.power_queue.put(avg_power)
+                    self.power_queue.put(
+                        PowerReading(timestamp=timestamp,
+                                     total_power=total_power))
 
                 if timestamp - last_log_time >= self.log_interval:
                     self._write_logs_to_csv()

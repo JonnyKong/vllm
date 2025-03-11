@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Union
 import pandas as pd
 
 from vllm.logger import init_logger
+from vllm.platforms.nvml_power_monitor import PowerReading
 
 from .nvml_freq_modulator import NvmlFreqModulator
 
@@ -53,11 +54,11 @@ class QLearningNvmlFreqModulator(NvmlFreqModulator):
         pass
 
     def get_latest_power_reading(self):
-        mean_power_usage = 0
+        p: Optional[PowerReading] = None
         while not self.power_usage_queue.empty():
             # takes the latest value only
-            mean_power_usage = self.power_usage_queue.get()
-        return mean_power_usage
+            p = self.power_usage_queue.get()
+        return p.total_power if p else 0.0
 
     def _save_rewards(self, log_file: Union[str, Path]):
         """Non-blocking method to trigger async saving."""
