@@ -103,6 +103,43 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
     )
 
 
+def yield_benchmark_power_profiling(pp: int, tp: int):
+    prefill_input_lens = [2048]
+    prefill_bss = [1]
+    decode_input_lens = [1024, 16384]
+    decode_bss = [256]
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), 8)
+
+    expr_dir = (
+        get_result_root() /
+        f'request_timing/2025-03-10_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
+    )
+
+    for prefill_input_len, prefill_bs, decode_input_len, decode_bs, freq in \
+            itertools.product(
+                prefill_input_lens,
+                prefill_bss,
+                decode_input_lens,
+                decode_bss,
+                test_freqs,
+            ):
+        if prefill_bs == 0 and decode_bs == 0:
+            continue
+
+        log_dir = expr_dir / \
+            f'prefill-len-{prefill_input_len}-bs-{prefill_bs}_decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}'
+
+        yield BenchmarkBatchParam(
+            prefill_input_lens=[prefill_input_len] * prefill_bs,
+            decode_input_lens=[decode_input_len] * decode_bs,
+            log_dir=str(log_dir),
+            gpu_freq_mhz=freq,
+            gpu_power_meas_interval=0.01,
+            min_num_iters=4,
+            min_seconds=2,
+        )
+
+
 def main(expr_fn: Callable):
     tp = 1
     pp = 1
@@ -127,5 +164,6 @@ if __name__ == '__main__':
         'batch': yield_benchmark_batch_args,
         'idle-power': yield_benchmark_idle_power_args,
         'sarathi-serve-sla': yield_benchmark_sarathi_args,
+        'power_profiling': yield_benchmark_power_profiling,
     }[sys.argv[1]]
     main(expr_fn)
