@@ -16,11 +16,32 @@ from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
 
 
-def yield_benchmark_batch_args_sample(pp: int = 1,
-                                      tp: int = 1,
-                                      num_samples: int = 10,
-                                      num_freqs: int = 8,
-                                      skip_existing: bool = False):
+def yield_benchmark_batch_args_sample_hybrid(pp: int = 1,
+                                             tp: int = 1,
+                                             num_samples: int = 10,
+                                             num_freqs: int = 8,
+                                             skip_existing: bool = False):
+    yield from _yield_benchmark_batch_args_sample_hybrid_or_prefill_only(
+        pp, tp, num_samples, num_freqs, skip_existing, prefill_only=False)
+
+
+def yield_benchmark_batch_args_sample_prefill_only(
+        pp: int = 1,
+        tp: int = 1,
+        num_samples: int = 10,
+        num_freqs: int = 8,
+        skip_existing: bool = False):
+    yield from _yield_benchmark_batch_args_sample_hybrid_or_prefill_only(
+        pp, tp, num_samples, num_freqs, skip_existing, prefill_only=True)
+
+
+def _yield_benchmark_batch_args_sample_hybrid_or_prefill_only(
+        pp: int = 1,
+        tp: int = 1,
+        num_samples: int = 10,
+        num_freqs: int = 8,
+        skip_existing: bool = False,
+        prefill_only: bool = False):
 
     max_prefill_input_len = 2048
     max_decode_input_len = 16384
@@ -29,7 +50,6 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
 
     for j in range(num_samples):
-
         # Uncomment to choose random frequency
         #freq = random.choice(test_freqs)
 
@@ -39,23 +59,19 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
         prefill_lens = []
         decode_lens = []
 
-        # Uncomment to allow decodes in batch
-        decode_bs = random.randint(1, max_decode_bs)
-
-        # Uncomment if you want a prefill-only batch
-        #decode_bs = 0
+        decode_bs = 0 if prefill_only else random.randint(1, max_decode_bs)
 
         # Chance of having prefill batch size be 1 with size 2048
-        if (random.random() > 0.9):
+        if random.random() > 0.9:
             prefill_bs = 1
             prefill_lens.append(max_prefill_input_len)
         else:
             prefill_bs = random.randint(1, max_prefill_bs)
 
         # Fill in prefill lengths if not size 1
-        if (len(prefill_lens) == 0):
+        if len(prefill_lens) == 0:
             retry = 0
-            if (random.random() > 0.5):
+            if random.random() > 0.5:
                 prefill_sample_token_limit = random.randint(
                     1, max_prefill_input_len)
             else:
@@ -85,8 +101,7 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
             prefill_bs = num_prefills
 
         # Fill in decode tokens
-
-        if (decode_bs > 0):
+        if decode_bs > 0:
             decode_lens = [0] * decode_bs
             bound_1 = random.randint(1, max_decode_input_len)
             bound_2 = random.randint(1, max_decode_input_len)
@@ -100,8 +115,12 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
             get_result_root() /
             f'request_timing/2025-02-02_benchmark-batch_llama70b/{get_gpu_name()}-pp{pp}-tp{tp}'
         )
-        log_dir = expr_dir / \
-            f'prefill-sum-{sum(prefill_lens)}-max-{max(prefill_lens)}-bs-{prefill_bs}_decode-sum-{sum(decode_lens)}-max-{max(decode_lens)}-bs-{decode_bs}_freq-{freq}'
+        run_name = f'prefill-sum-{sum(prefill_lens)}-max-{max(prefill_lens)}-bs-{prefill_bs}'  #noqa
+        if not prefill_only:
+            run_name += f'_decode-sum-{sum(decode_lens)}-max-{max(decode_lens)}-bs-{decode_bs}'  #noqa
+        run_name += f'_freq-{freq}'
+        log_dir = expr_dir / run_name
+
         if skip_existing and os.path.exists(log_dir):
             continue
 
@@ -125,23 +144,21 @@ def yield_benchmark_batch_args_sample_decode_only(
 
     max_decode_bs = 512
 
-    # The following 3 parameters can be changed according to
-    # how many samples are desired.
+    # The following 3 parameters can be changed according to how many samples
+    # are desired.
 
     # num_freqs: Number of frequencies to test
 
     # num_bs: Number of decode batch sizes to test
-    # Batch sizes tested will be evenly split up to
-    # max_decode_bs
+    # Batch sizes tested will be evenly split up to max_decode_bs
 
-    # decode_bounds: Bounds to test in each configuration represented
-    # as a list of tuples (lower bound, upper bound)
-    # 16384 is a good upper bound for decode length, it is likely
-    # not worth testing decode lengths higher than 16384.
-    # The knobs in the default configuration tests bounds with range 16,
-    # 256, 512, 2048, 4096, 8192, and 16384. These ranges were also
-    # evenly spread up to max_decode_len to get samples across
-    # various distributions and sample lengths.
+    # decode_bounds: Bounds to test in each configuration represented as a list
+    # of tuples (lower bound, upper bound) 16384 is a good upper bound for
+    # decode length, it is likely not worth testing decode lengths higher than
+    # 16384. The knobs in the default configuration tests bounds with range 16,
+    # 256, 512, 2048, 4096, 8192, and 16384. These ranges were also evenly
+    # spread up to max_decode_len to get samples across various distributions
+    # and sample lengths.
     if decode_bounds is None:
         decode_bounds = [(1, 16), (4096, 4112), (8192, 8208), (12288, 12304),
                          (16368, 16384), (1, 256), (2048, 2560), (6144, 6656),
@@ -162,8 +179,10 @@ def yield_benchmark_batch_args_sample_decode_only(
     decode_bs_step = max_decode_bs / num_bs
 
     for i in range(num_bs):
-        decode_bs_knob_arr[i] = (int(
-            (i + 0.25) * decode_bs_step), int((i + 1) * decode_bs_step))
+        decode_bs_knob_arr[i] = (
+            int((i + 0.25) * decode_bs_step),
+            int((i + 1) * decode_bs_step),
+        )
 
     for freq_knob, decode_bs_knob, decode_bound_knob in \
             random.sample(sorted(itertools.product(
