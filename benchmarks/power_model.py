@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,8 @@ def main():
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
     model = GradientBoostingRegressor(random_state=0).fit(X_train, Y_train)
+    with open('power_model.pkl', 'wb') as f:
+        pickle.dump(model, f)
 
     # Predict on test set
     Y_pred = model.predict(X_test)
@@ -48,7 +51,11 @@ def load_data():
     freqs = []  # Store frequencies for grouping
 
     print('Loading data ...')
-    for args in tqdm(list(yield_benchmark_power_profiling(tp=1, pp=1))):
+    for args in tqdm(
+            list(
+                yield_benchmark_power_profiling(tp=1,
+                                                pp=1,
+                                                skip_existing=False))):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         power_path = Path(args.log_dir) / 'power_log.csv'
 
@@ -60,6 +67,7 @@ def load_data():
         df_perf = pd.read_csv(perf_path)
         df_power = pd.read_csv(power_path)
         power = compute_average_power(df_perf, df_power)
+        assert not np.isnan(power)
 
         X.append(feat)
         freqs.append(feat[0])  # Store frequency value

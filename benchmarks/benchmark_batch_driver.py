@@ -3,6 +3,7 @@ import itertools
 import os
 import random
 import sys
+from pathlib import Path
 from typing import Callable
 
 import uvloop
@@ -84,7 +85,7 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
                                       num_samples: int = 10,
                                       num_freqs: int = 11):
     """
-    TODO: remove this function with the one in `latency_profiler.py` once that
+    TODO: replace this function with the one in `latency_profiler.py` once that
     becomes stable.
     """
     max_prefill_input_len = 2048
@@ -178,6 +179,87 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
                                   min_seconds=1)
 
 
+def yield_benchmark_batch_args_sample_decode_only(pp: int = 1,
+                                                  tp: int = 1,
+                                                  skip_existing: bool = False,
+                                                  sample_num: int = 0,
+                                                  num_freqs: int = 11):
+    """
+    TODO: replace this function with the one in `latency_profiler.py` once that
+    becomes stable.
+    """
+    max_decode_bs = 512
+
+    # The following 3 parameters can be changed according to
+    # how many samples are desired.
+
+    # Number of frequencies to test
+    freq_knob_count = num_freqs
+
+    # Number of decode batch sizes to test
+    # Batch sizes tested will be evenly split up to
+    # max_decode_bs
+    decode_bs_knob_count = 8
+
+    # Bounds to test in each configuration
+    # The knobs in this configuration tests bounds with range 16,
+    # 256, 512, 2048, 4096, 8192, and 16384. These ranges were also
+    # evenly spread up to max_decode_len to get samples across
+    # various distributions and sample lengths. These can be configured
+    # to test other bounds as well.
+    decode_bound_knob_arr = [(1, 16), (4096, 4112), (8192, 8208),
+                             (12288, 12304), (16368, 16384), (1, 256),
+                             (2048, 2560), (6144, 6656), (10240, 10752),
+                             (14328, 14840), (16128, 16384), (1, 2048),
+                             (1, 4096), (6144, 10240), (12288, 16384),
+                             (14336, 16384), (1, 8192), (8192, 16384),
+                             (1, 16384), (1, 16384)]
+
+    num_samples = freq_knob_count * decode_bs_knob_count * len(
+        decode_bound_knob_arr)
+    start_freq_knob = int(freq_knob_count * sample_num / num_samples)
+
+    freq_knob_arr = uniform_sample_sorted(nvml_get_available_freq(),
+                                          freq_knob_count)
+    decode_bs_knob_arr = [0] * decode_bs_knob_count
+    decode_bs_step = max_decode_bs / decode_bs_knob_count
+
+    for i in range(decode_bs_knob_count):
+        decode_bs_knob_arr[i] = (int(
+            (i + 0.25) * decode_bs_step), int((i + 1) * decode_bs_step))
+
+    for freq_knob, decode_bs_knob, decode_bound_knob in \
+            itertools.product(
+                freq_knob_arr[start_freq_knob:],
+                decode_bs_knob_arr,
+                decode_bound_knob_arr
+            ):
+
+        freq = freq_knob
+        decode_bs = random.randint(decode_bs_knob[0], decode_bs_knob[1])
+
+        prefill_lens = []
+        decode_lens = [0] * decode_bs
+
+        # Fill in decode tokens
+        for i in range(decode_bs):
+            decode_lens[i] = random.randint(decode_bound_knob[0],
+                                            decode_bound_knob[1])
+
+        expr_dir = get_result_root()
+        log_dir = expr_dir / \
+            'results'
+        if skip_existing and os.path.exists(log_dir):
+            continue
+
+        yield BenchmarkBatchParam(prefill_input_lens=prefill_lens,
+                                  decode_input_lens=decode_lens,
+                                  log_dir=str(log_dir),
+                                  gpu_freq_mhz=freq,
+                                  min_num_iters=1,
+                                  min_seconds=1)
+
+
 def yield_benchmark_sarathi_args(pp: int, tp: int):
     """
     Derive the SLO with Sarathi-serve's definition:
@@ -204,19 +286,39 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
     )
 
 
-def yield_benchmark_power_profiling(pp: int, tp: int):
+def yield_benchmark_power_profiling(pp: int,
+                                    tp: int,
+                                    skip_existing: bool = True,
+                                    num_freqs: int = 11):
     expr_dir = (
         get_result_root() /
         f'request_timing/2025-03-10_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
     )
 
-    random.seed(0)
-    for i, args in enumerate(
-            yield_benchmark_batch_args_sample(num_samples=6000,
-                                              num_freqs=11,
-                                              skip_existing=True)):
-        args.log_dir = str(expr_dir / f'sample{i}_freq{args.gpu_freq_mhz}')
-        yield args
+    # Since we are swapping out `log_dir`, pass in `skip_existing=False` for
+    # sub-generators, and check for existence in this function
+    arg_generators = {
+        'hybrid':
+        yield_benchmark_batch_args_sample(num_samples=6000,
+                                          num_freqs=num_freqs,
+                                          skip_existing=False),
+        # TODO: add prefill-only
+        # TODO: rename `sample_num` to `num_samples` for consistency
+        # 'decode-only': yield_benchmark_batch_args_sample_decode_only(
+        #     sample_num=10, num_freqs=num_freqs, skip_existing=False),
+    }
+    for batch_type, arg_generator in arg_generators.items():
+        random.seed(0)
+        for i, args in enumerate(arg_generator):
+            # Rewrite `args` as needed
+            args.min_num_iters = 4  # Too few may cause nan output
+
+            sample_name = f'{batch_type}_{i:06d}_freq{args.gpu_freq_mhz}'
+            args.log_dir = str(expr_dir / sample_name)
+
+            if skip_existing and Path(args.log_dir).exists():
+                continue
+            yield args
 
 
 def main(expr_fn: Callable):
