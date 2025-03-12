@@ -3,11 +3,13 @@ import itertools
 import json
 import os
 import random
+from typing import List, Optional
 
 import numpy as np
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
-from benchmark_utils import get_result_root, uniform_sample_sorted
+from benchmark_utils import (get_gpu_name, get_result_root,
+                             uniform_sample_sorted)
 
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.platforms.nvml_utils import nvml_get_available_freq
@@ -16,14 +18,15 @@ from vllm.utils import FlexibleArgumentParser
 
 def yield_benchmark_batch_args_sample(pp: int = 1,
                                       tp: int = 1,
-                                      skip_existing: bool = False,
-                                      num_samples: int = 10):
+                                      num_samples: int = 10,
+                                      num_freqs: int = 8,
+                                      skip_existing: bool = False):
 
     max_prefill_input_len = 2048
     max_decode_input_len = 16384
     max_decode_bs = 512
     max_prefill_bs = 16
-    test_freqs = nvml_get_available_freq()
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
 
     for j in range(num_samples):
 
@@ -93,9 +96,12 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
                 decode_lens[i] = random.randint(decode_sample_min_length,
                                                 decode_sample_max_length)
 
-        expr_dir = get_result_root()
+        expr_dir = (
+            get_result_root() /
+            f'request_timing/2025-02-02_benchmark-batch_llama70b/{get_gpu_name()}-pp{pp}-tp{tp}'
+        )
         log_dir = expr_dir / \
-            'results'
+            f'prefill-sum-{sum(prefill_lens)}-max-{max(prefill_lens)}-bs-{prefill_bs}_decode-sum-{sum(decode_lens)}-max-{max(decode_lens)}-bs-{decode_bs}_freq-{freq}'
         if skip_existing and os.path.exists(log_dir):
             continue
 
@@ -107,58 +113,64 @@ def yield_benchmark_batch_args_sample(pp: int = 1,
                                   min_seconds=1)
 
 
-def yield_benchmark_batch_args_sample_decode_only(pp: int = 1,
-                                                  tp: int = 1,
-                                                  skip_existing: bool = False,
-                                                  sample_num: int = 0):
+def yield_benchmark_batch_args_sample_decode_only(
+    pp: int = 1,
+    tp: int = 1,
+    num_freqs: int = 8,
+    num_bs: int = 8,
+    decode_bounds: Optional[List] = None,
+    skip_existing: bool = False,
+    num_samples: Optional[int] = None,
+):
 
-    #max_decode_input_len = 16384
     max_decode_bs = 512
 
     # The following 3 parameters can be changed according to
     # how many samples are desired.
 
-    # Number of frequencies to test
-    freq_knob_count = 10
+    # num_freqs: Number of frequencies to test
 
-    # Number of decode batch sizes to test
+    # num_bs: Number of decode batch sizes to test
     # Batch sizes tested will be evenly split up to
     # max_decode_bs
-    decode_bs_knob_count = 8
 
-    # Bounds to test in each configuration
-    # The knobs in this configuration tests bounds with range 16,
+    # decode_bounds: Bounds to test in each configuration represented
+    # as a list of tuples (lower bound, upper bound)
+    # 16384 is a good upper bound for decode length, it is likely
+    # not worth testing decode lengths higher than 16384.
+    # The knobs in the default configuration tests bounds with range 16,
     # 256, 512, 2048, 4096, 8192, and 16384. These ranges were also
     # evenly spread up to max_decode_len to get samples across
-    # various distributions and sample lengths. These can be configured
-    # to test other bounds as well.
-    decode_bound_knob_arr = [(1, 16), (4096, 4112), (8192, 8208),
-                             (12288, 12304), (16368, 16384), (1, 256),
-                             (2048, 2560), (6144, 6656), (10240, 10752),
-                             (14328, 14840), (16128, 16384), (1, 2048),
-                             (1, 4096), (6144, 10240), (12288, 16384),
-                             (14336, 16384), (1, 8192), (8192, 16384),
-                             (1, 16384), (1, 16384)]
+    # various distributions and sample lengths.
+    if decode_bounds is None:
+        decode_bounds = [(1, 16), (4096, 4112), (8192, 8208), (12288, 12304),
+                         (16368, 16384), (1, 256), (2048, 2560), (6144, 6656),
+                         (10240, 10752), (14328, 14840), (16128, 16384),
+                         (1, 2048), (1, 4096), (6144, 10240), (12288, 16384),
+                         (14336, 16384), (1, 8192), (8192, 16384), (1, 16384),
+                         (1, 16384)]
 
-    num_samples = freq_knob_count * decode_bs_knob_count * len(
-        decode_bound_knob_arr)
-    start_freq_knob = int(freq_knob_count * sample_num / num_samples)
+    if num_samples is None:
+        num_samples = num_freqs * num_bs * len(decode_bounds)
+    assert num_samples <= num_freqs * num_bs * len(
+        decode_bounds
+    ), "Number of samples cannot be greater than combinations of " + \
+    "parameters given. Decrease num_samples or increase search space"
 
-    freq_knob_arr = uniform_sample_sorted(nvml_get_available_freq(),
-                                          freq_knob_count)
-    decode_bs_knob_arr = [0] * decode_bs_knob_count
-    decode_bs_step = max_decode_bs / decode_bs_knob_count
+    freq_knob_arr = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
+    decode_bs_knob_arr = [0] * num_bs
+    decode_bs_step = max_decode_bs / num_bs
 
-    for i in range(decode_bs_knob_count):
+    for i in range(num_bs):
         decode_bs_knob_arr[i] = (int(
             (i + 0.25) * decode_bs_step), int((i + 1) * decode_bs_step))
 
     for freq_knob, decode_bs_knob, decode_bound_knob in \
-            itertools.product(
-                freq_knob_arr[start_freq_knob:],
+            random.sample(sorted(itertools.product(
+                freq_knob_arr,
                 decode_bs_knob_arr,
-                decode_bound_knob_arr
-            ):
+                decode_bounds
+            )), num_samples):
 
         freq = freq_knob
         decode_bs = random.randint(decode_bs_knob[0], decode_bs_knob[1])
@@ -171,9 +183,12 @@ def yield_benchmark_batch_args_sample_decode_only(pp: int = 1,
             decode_lens[i] = random.randint(decode_bound_knob[0],
                                             decode_bound_knob[1])
 
-        expr_dir = get_result_root()
+        expr_dir = (
+            get_result_root() /
+            f'request_timing/2025-02-02_benchmark-batch_llama70b/{get_gpu_name()}-pp{pp}-tp{tp}'
+        )
         log_dir = expr_dir / \
-            'results'
+            f'decode-sum-{sum(decode_lens)}-max-{max(decode_lens)}-bs-{decode_bs}_freq-{freq}'
         if skip_existing and os.path.exists(log_dir):
             continue
 
@@ -193,7 +208,7 @@ def main():
     # These two parameters affect the file the profile
     # gets saved into
     model_name = 'LLama3-8B'
-    gpu = "L4"
+    gpu = get_gpu_name()
 
     vllm_args = (f"--model {model} "
                  f"-tp {tp} "
@@ -217,7 +232,7 @@ def main():
     benchmark_param_args = list(
         yield_benchmark_batch_args_sample_decode_only(pp=pp,
                                                       tp=tp,
-                                                      sample_num=0))
+                                                      num_samples=10))
     try:
         uvloop.run(benchmark_batch(vllm_args, benchmark_param_args, latencies))
     except Exception:

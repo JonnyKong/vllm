@@ -9,25 +9,34 @@ from sklearn.model_selection import train_test_split
 
 def main():
 
-    # These values determine the file to read from and dump to
-    gpu = "L4"
-    model = "LLama3-8B"
-
-    with open(f'profile_{gpu}_{model}.json') as f:
+    with open(
+            "profiles/decode-only/profile_L4_Llama3-8B_decode-only.json") as f:
         profile = json.load(f)
 
     # Unomment for decode only
-    #X = [np.array([d["frequency"], d["decode_batch_size"],
-    # d["sum_decode_len"], d["max_decode_len"],
-    # d["std_decode_len"]]) for d in profile]
-
-    # Uncomment for prefill only
     X = [
         np.array([
-            d["frequency"], d["prefill_batch_size"], d["sum_prefill_len"],
-            d["max_prefill_len"], d["std_prefill_len"]
+            d["frequency"], d["decode_batch_size"], d["sum_decode_len"],
+            d["max_decode_len"], d["std_decode_len"]
         ]) for d in profile
     ]
+
+    # Uncomment for prefill only
+    # X = [
+    #     np.array([
+    #         d["frequency"], d["prefill_batch_size"], d["sum_prefill_len"],
+    #         d["max_prefill_len"], d["std_prefill_len"]
+    #     ]) for d in profile
+    # ]
+
+    # Uncomment for hybrid
+    # X = [
+    #     np.array([
+    #         d["frequency"], d["prefill_batch_size"], d["decode_batch_size"],
+    #         d["sum_decode_len"], d["sum_prefill_len"], d["max_decode_len"],
+    #         d["max_prefill_len"], d["std_decode_len"], d["std_prefill_len"]
+    #     ]) for d in profile
+    # ]
 
     Y = [np.mean(d["latencies"][:]) for d in profile]
 
@@ -57,8 +66,13 @@ def main():
 
     print("Samples:", count)
     print("Average error:", avg_error)
+    print("25th percentile difference:",
+          differences[int(len(differences) * 0.25)])
+    print("75th percentile difference:",
+          differences[int(len(differences) * 0.75)])
 
-    with open(f'batch_latency_predictor_{gpu}_{model}.pkl', 'wb') as f:
+    with open('batch_latency_predictor_L4-LLama3-8B_decode-only.pkl',
+              'wb') as f:
         pickle.dump(model, f)
 
 
