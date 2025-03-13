@@ -1,12 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 import random
+from pathlib import Path
 
-import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_utils import uniform_sample_sorted
+from matplotlib import pyplot as plt
 from scipy.stats import lognorm
 
 from vllm.platforms.nvml_utils import nvml_get_available_freq
+
+################ Knobs ###############
+# Profiled empirically on A40, llama3-8b
+MAX_DECODE_BS = 256
+MAX_PREFILL_BS = 16
+MIN_INPUT_LEN = 10
+MAX_INPUT_LEN = 2048
+######################################
 
 
 def yield_benchmark_batch_args_sample_hybrid(num_samples: int, num_freqs: int):
@@ -32,53 +41,56 @@ def yield_benchmark_batch_args_sample_decode_only(num_samples: int,
                        enable_decode=True)
 
 
-def _get_prefill_len_generator(batch_size=100):
+def _get_lognorm_generator(shape: float,
+                           scale: float,
+                           min_val: int,
+                           max_val: int,
+                           batch_size=100):
     """
     Fitted on ShareGPT. Uses batch sampling for improved performance.
     """
-    shape = 1.5502
-    loc = 0.0
-    scale = 87.9664
-    min_value = 10
     batch = iter([])  # Empty iterator to start
+    loc = 0.0
 
     while True:
         try:
-            yield max(min_value, int(round(next(batch))))
+            ret = int(round(next(batch)))
+            ret = max(min_val, ret)
+            ret = min(max_val, ret)
+            yield ret
         except StopIteration:
             batch = iter(lognorm.rvs(shape, loc, scale,
                                      size=batch_size))  # Refill batch
 
 
-def _get_decode_len_generator(batch_size=100):
-    """
-    Fitted on ShareGPT. Uses batch sampling for improved performance.
-    """
-    shape = 0.8552
-    loc = 0.0
-    scale = 234.9029
-    min_value = 10
-    batch = iter([])  # Empty iterator to start
-
-    while True:
-        try:
-            yield max(min_value, int(round(next(batch))))
-        except StopIteration:
-            batch = iter(lognorm.rvs(shape, loc, scale,
-                                     size=batch_size))  # Refill batch
+def _get_req_len_generator(dataset: str, mode: str):
+    assert dataset in ['sharegpt']
+    assert mode in ['prefill', 'decode']
+    lognorm_shape_scale_dict = {
+        'sharegpt': {
+            # [shape, scale]
+            'prefill': [1.5502, 87.9664],
+            'decode': [0.9236, 250.5623],
+        },
+    }
+    param = lognorm_shape_scale_dict[dataset][mode]
+    return _get_lognorm_generator(shape=param[0],
+                                  scale=param[1],
+                                  min_val=MIN_INPUT_LEN,
+                                  max_val=MAX_INPUT_LEN)
 
 
 def _sample(num_samples: int,
             num_freqs: int,
-            enable_prefill: bool = True,
-            enable_decode: bool = True,
+            enable_prefill: bool,
+            enable_decode: bool,
             token_budget: int = 8192,
             seq_budget: int = 2048):
     assert enable_prefill or enable_decode
 
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
-    prefill_len_gen = _get_prefill_len_generator()
-    decode_len_gen = _get_decode_len_generator()
+    prefill_len_gen = _get_req_len_generator('sharegpt', 'prefill')
+    decode_len_gen = _get_req_len_generator('sharegpt', 'decode')
 
     def gen_one():
         token_budget_remaining = token_budget
@@ -87,9 +99,7 @@ def _sample(num_samples: int,
         # Decode
         decode_lens = []
         if enable_decode:
-            # Select a decode_bs up to seq_budget, otherwise seq_budget will
-            # always be exhausted by decodes
-            decode_bs = random.randint(1, seq_budget)
+            decode_bs = random.randint(1, MAX_DECODE_BS)
             for _ in range(decode_bs):
                 decode_lens.append(next(decode_len_gen))
                 token_budget_remaining -= 1
@@ -100,7 +110,8 @@ def _sample(num_samples: int,
         # Prefill
         prefill_lens = []
         if enable_prefill:
-            while True:
+            prefill_bs = random.randint(1, MAX_PREFILL_BS)
+            for _ in range(prefill_bs):
                 length = next(prefill_len_gen)
                 token_budget_remaining -= length
                 seq_budget_remaining -= 1
@@ -120,6 +131,18 @@ def _sample(num_samples: int,
     yield from (gen_one() for _ in range(num_samples))
 
 
+def get_cdf_data(raw_data, scale=1.0):
+    index = 1
+    x_data = []
+    y_data = []
+    sorted_data = sorted(raw_data)
+    for row in sorted_data:
+        x_data.append(1.0 * row / scale)
+        y_data.append(index * 1.0 / len(sorted_data) * 100)
+        index += 1
+    return [x_data, y_data]
+
+
 if __name__ == '__main__':
     for fn in [
             yield_benchmark_batch_args_sample_hybrid,
@@ -127,11 +150,22 @@ if __name__ == '__main__':
             yield_benchmark_batch_args_sample_decode_only,
     ]:
         params = list(fn(num_samples=2000, num_freqs=11))
-        prefill_lens = pd.Series(
-            [length for p in params for length in p.prefill_input_lens])
-        decode_lens = pd.Series(
-            [length for p in params for length in p.decode_input_lens])
+        dists_to_plot = {
+            'prefill_len':
+            [length for p in params for length in p.prefill_input_lens],
+            'decode_len':
+            [length for p in params for length in p.decode_input_lens],
+            'prefill_bs': [len(p.prefill_input_lens) for p in params],
+            'decode_bs': [len(p.decode_input_lens) for p in params],
+        }
 
-        print(fn.__name__)
-        print('prefill lens: ', prefill_lens.describe())
-        print('decode lens: ', decode_lens.describe())
+        fig, axs = plt.subplots(1, len(dists_to_plot), figsize=(15, 5))
+        for i, (title, data) in enumerate(dists_to_plot.items()):
+            ax = axs[i]
+            x, y = get_cdf_data(data)
+            ax.plot(x, y)
+            ax.set_title(title)
+        fig.tight_layout()
+        Path('figs').mkdir(exist_ok=True)
+        plt.savefig(Path('figs') / f'{fn.__name__}.pdf')
+        plt.close(fig)

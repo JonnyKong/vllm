@@ -116,22 +116,22 @@ def yield_benchmark_power_profiling(pp: int,
                                     num_freqs: int = 11):
     expr_dir = (
         get_result_root() /
-        f'request_timing/2025-03-12_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
+        f'request_timing/2025-03-13_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
     )
 
     # Since we are swapping out `log_dir`, pass in `skip_existing=False` for
     # sub-generators, and check for existence in this function
     arg_generators = {
         'hybrid':
-        yield_benchmark_batch_args_sample_hybrid(num_samples=8000,
+        yield_benchmark_batch_args_sample_hybrid(num_samples=6000,
                                                  num_freqs=num_freqs),
         'prefill-only':
         yield_benchmark_batch_args_sample_prefill_only(
-            num_samples=4000,
+            num_samples=3000,
             num_freqs=num_freqs,
         ),
         'decode-only':
-        yield_benchmark_batch_args_sample_decode_only(num_samples=4000,
+        yield_benchmark_batch_args_sample_decode_only(num_samples=3000,
                                                       num_freqs=num_freqs),
     }
     for batch_type, arg_generator in arg_generators.items():
