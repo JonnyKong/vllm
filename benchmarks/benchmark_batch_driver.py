@@ -10,9 +10,10 @@ import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
 from benchmark_utils import (get_gpu_name, get_result_root,
                              uniform_sample_sorted)
-from latency_profiler import (yield_benchmark_batch_args_sample_decode_only,
-                              yield_benchmark_batch_args_sample_hybrid,
-                              yield_benchmark_batch_args_sample_prefill_only)
+from latency_and_power_model_sampler import (
+    yield_benchmark_batch_args_sample_decode_only,
+    yield_benchmark_batch_args_sample_hybrid,
+    yield_benchmark_batch_args_sample_prefill_only)
 
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.platforms.nvml_utils import nvml_get_available_freq
@@ -115,34 +116,28 @@ def yield_benchmark_power_profiling(pp: int,
                                     num_freqs: int = 11):
     expr_dir = (
         get_result_root() /
-        f'request_timing/2025-03-10_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
+        f'request_timing/2025-03-12_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
     )
 
     # Since we are swapping out `log_dir`, pass in `skip_existing=False` for
     # sub-generators, and check for existence in this function
     arg_generators = {
         'hybrid':
-        yield_benchmark_batch_args_sample_hybrid(num_samples=6000,
-                                                 num_freqs=num_freqs,
-                                                 skip_existing=False),
+        yield_benchmark_batch_args_sample_hybrid(num_samples=8000,
+                                                 num_freqs=num_freqs),
         'prefill-only':
         yield_benchmark_batch_args_sample_prefill_only(
-            num_samples=2000,
+            num_samples=4000,
             num_freqs=num_freqs,
-            skip_existing=False,
         ),
         'decode-only':
-        yield_benchmark_batch_args_sample_decode_only(num_samples=2000,
-                                                      num_freqs=num_freqs,
-                                                      num_bs=32,
-                                                      skip_existing=False),
+        yield_benchmark_batch_args_sample_decode_only(num_samples=4000,
+                                                      num_freqs=num_freqs),
     }
     for batch_type, arg_generator in arg_generators.items():
         random.seed(0)
         for i, args in enumerate(arg_generator):
             # Rewrite `args` as needed
-            args.min_num_iters = 4  # Too few may cause nan output
-
             sample_name = f'{batch_type}_{i:06d}_freq{args.gpu_freq_mhz}'
             args.log_dir = str(expr_dir / sample_name)
 
@@ -155,7 +150,6 @@ def main(expr_fn: Callable):
     tp = 1
     pp = 1
     model = 'meta-llama/Llama-3.1-8B-Instruct'
-    # model = 'meta-llama/Llama-3.1-70B-Instruct'
     vllm_args = (f"--model {model} "
                  f"-tp {tp} "
                  f"-pp {pp} "
