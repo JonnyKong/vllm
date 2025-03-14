@@ -11,12 +11,10 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 
-def main():
-    # model_type = 'decode'
-    # model_type = 'prefill'
-    model_type = 'hybrid'
+def main(batch_type: str):
+    assert batch_type in ['prefill-only', 'decode-only', 'hybrid']
 
-    X, Y, freqs = load_data(model_type)
+    X, Y, freqs = load_data(batch_type)
     print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
@@ -24,7 +22,7 @@ def main():
     # Train Gradient Boosting Regressor
     model = GradientBoostingRegressor(random_state=0, n_estimators=100)
     model.fit(X_train, Y_train)
-    with open(f'{model_type}_latency_model.pkl', 'wb') as f:
+    with open(f'latency_model_{batch_type}.pkl', 'wb') as f:
         pickle.dump(model, f)
 
     # Predict on test set
@@ -62,16 +60,17 @@ def main():
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
 
 
-def load_data(model_type: str):
+def load_data(batch_type: str):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
 
     print('Loading data ...')
-    for args in tqdm(gen_power_profiling_args(tp=1, pp=1,
-                                              skip_existing=False)):
-        if model_type not in args.log_dir:
-            continue
+    for args in tqdm(
+            gen_power_profiling_args(tp=1,
+                                     pp=1,
+                                     skip_existing=False,
+                                     batch_type=batch_type)):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         if not perf_path.exists():
             print(f"Skipping {args.log_dir}, missing required files.")
@@ -83,11 +82,11 @@ def load_data(model_type: str):
             latency = (df_perf['pp_rank_0_end'] -
                        df_perf['pp_rank_0_start']).mean()
 
-            if model_type == 'hybrid':
+            if batch_type == 'hybrid':
                 X.append(feat[:])
-            elif model_type == 'prefill':
+            elif batch_type == 'prefill-only':
                 X.append(feat[:5])
-            else:  # model_type == 'decode'
+            else:  # batch_type == 'decode-only'
                 X.append(feat[[0, 5, 6, 7, 8]])
             freqs.append(feat[0])  # Store frequency value
             Y.append(latency)
@@ -127,9 +126,9 @@ def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
         decode_len_sum,
         decode_len_std,
         decode_len_max,
-    ],
-                    dtype=np.float32)
+    ]).astype(np.float32)
 
 
 if __name__ == '__main__':
-    main()
+    for batch_type in ['prefill-only', 'decode-only', 'hybrid']:
+        main(batch_type)

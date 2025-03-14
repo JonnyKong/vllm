@@ -23,7 +23,11 @@ def main(batch_type: Optional[str] = None):
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
     model = GradientBoostingRegressor(random_state=0).fit(X_train, Y_train)
-    with open('power_model.pkl', 'wb') as f:
+    if batch_type:
+        model_name = f'power_model_{batch_type}.pkl'
+    else:
+        model_name = 'power_model.pkl'
+    with open(model_name, 'wb') as f:
         pickle.dump(model, f)
 
     # Predict on test set
@@ -210,4 +214,5 @@ def compute_average_power(df_perf, df_power) -> float:
 
 
 if __name__ == '__main__':
-    main(batch_type=None)
+    for batch_type in [None, 'prefill-only', 'decode-only', 'hybrid']:
+        main(batch_type)
