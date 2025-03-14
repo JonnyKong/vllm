@@ -13,10 +13,11 @@ from tqdm import tqdm
 
 def main():
     # model_type = 'decode'
-    model_type = 'prefill'
-    # model_type = 'hybrid'
+    # model_type = 'prefill'
+    model_type = 'hybrid'
 
     X, Y, freqs = load_data(model_type)
+    print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
@@ -31,22 +32,32 @@ def main():
 
     # Compute absolute relative error
     abs_rel_error = np.abs((Y_test - Y_pred) / Y_test)
+    rel_error = (Y_test - Y_pred) / Y_test
 
     # Store errors in a pandas DataFrame and analyze grouped by frequency
     df_errors = pd.DataFrame({
         'Frequency': freqs_test,
-        'Absolute Relative Error': abs_rel_error
+        'Absolute Relative Error': abs_rel_error,
+        'Relative Error': rel_error
     })
 
     grouped_errors = df_errors.groupby(
         'Frequency')['Absolute Relative Error'].mean()
+    grouped_relative_errors_mean = df_errors.groupby(
+        'Frequency')['Relative Error'].mean()
+    grouped_relative_erros_std = df_errors.groupby(
+        'Frequency')['Relative Error'].std()
     sample_counts = df_errors.groupby('Frequency').size()
 
     for freq, mean_error in grouped_errors.items():
         count = sample_counts[freq]
-        print(
-            f"Frequency {freq:.2f} MHz (Samples: {count}) MAE: {mean_error:.4f}"
-        )
+        rel_error_mean = grouped_relative_errors_mean[freq]
+        rel_error_std = grouped_relative_erros_std[freq]
+        print(f"Frequency {freq:.2f} "
+              f"MHz (Samples: {count}) "
+              f"MAE: {mean_error:.4f}, "
+              f"Relative Error Mean: {rel_error_mean:.4f}, "
+              f"Relative Error Std: {rel_error_std:.4f}")
     print(
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
 
