@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import itertools
 import os
-import random
 import sys
 from pathlib import Path
 from typing import Callable
@@ -11,16 +10,16 @@ from benchmark_batch import BenchmarkBatchParam, benchmark_batch
 from benchmark_utils import (get_gpu_name, get_result_root,
                              uniform_sample_sorted)
 from latency_and_power_model_sampler import (
-    yield_benchmark_batch_args_sample_decode_only,
-    yield_benchmark_batch_args_sample_hybrid,
-    yield_benchmark_batch_args_sample_prefill_only)
+    gen_benchmark_batch_args_sample_decode_only,
+    gen_benchmark_batch_args_sample_hybrid,
+    gen_benchmark_batch_args_sample_prefill_only)
 
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
 
 
-def yield_benchmark_batch_args(pp: int, tp: int, skip_existing: bool = False):
+def gen_benchmark_batch_args(pp: int, tp: int, skip_existing: bool = False):
     expr_dir = (
         get_result_root() /
         f'request_timing/2025-02-02_benchmark-batch_llama70b/{get_gpu_name()}-pp{pp}-tp{tp}'
@@ -32,6 +31,7 @@ def yield_benchmark_batch_args(pp: int, tp: int, skip_existing: bool = False):
     decode_bss = [256]
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), 8)
 
+    args = []
     for prefill_input_len, prefill_bs, decode_input_len, decode_bs, freq in \
             itertools.product(
                 prefill_input_lens,
@@ -48,15 +48,17 @@ def yield_benchmark_batch_args(pp: int, tp: int, skip_existing: bool = False):
         if skip_existing and os.path.exists(log_dir):
             continue
 
-        yield BenchmarkBatchParam(
-            prefill_input_lens=[prefill_input_len] * prefill_bs,
-            decode_input_lens=[decode_input_len] * decode_bs,
-            log_dir=str(log_dir),
-            gpu_freq_mhz=freq,
-        )
+        args.append(
+            BenchmarkBatchParam(
+                prefill_input_lens=[prefill_input_len] * prefill_bs,
+                decode_input_lens=[decode_input_len] * decode_bs,
+                log_dir=str(log_dir),
+                gpu_freq_mhz=freq,
+            ))
+    return args
 
 
-def yield_benchmark_idle_power_args(pp: int, tp: int):
+def gen_benchmark_idle_power_args(pp: int, tp: int):
     """
     Introduce a delay before issuing each batch to assess whether the power
     consumption between batches aligns with the idle power measured offline.
@@ -67,6 +69,7 @@ def yield_benchmark_idle_power_args(pp: int, tp: int):
     decode_input_len = 1024
     decode_bs = 256
 
+    args = []
     for delay_time_s in [2.0]:
         for freq in test_freqs:
             expr_dir = (get_result_root() / 'request_timing' /
@@ -74,17 +77,19 @@ def yield_benchmark_idle_power_args(pp: int, tp: int):
                         f'{get_gpu_name()}-pp{pp}-tp{tp}-delay{delay_time_s}')
             log_dir = expr_dir / \
                 f'prefill-len-{prefill_input_len}-bs-{prefill_bs}_decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}'
-            yield BenchmarkBatchParam(
-                prefill_input_lens=[prefill_input_len] * prefill_bs,
-                decode_input_lens=[decode_input_len] * decode_bs,
-                log_dir=str(log_dir),
-                gpu_freq_mhz=freq,
-                delay_time_min_s=delay_time_s,
-                delay_time_max_s=delay_time_s,
-            )
+            args.append(
+                BenchmarkBatchParam(
+                    prefill_input_lens=[prefill_input_len] * prefill_bs,
+                    decode_input_lens=[decode_input_len] * decode_bs,
+                    log_dir=str(log_dir),
+                    gpu_freq_mhz=freq,
+                    delay_time_min_s=delay_time_s,
+                    delay_time_max_s=delay_time_s,
+                ))
+    return args
 
 
-def yield_benchmark_sarathi_args(pp: int, tp: int):
+def gen_sarathi_args(pp: int, tp: int):
     """
     Derive the SLO with Sarathi-serve's definition:
 
@@ -100,7 +105,7 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
                f'decode-len-{decode_input_len}-bs-{decode_bs}_freq-{freq}')
     # Use uneven batch sizes, which matches online serving
     decode_input_lens = list(range(decode_input_len, decode_input_len + 32))
-    yield BenchmarkBatchParam(
+    return BenchmarkBatchParam(
         prefill_input_lens=[],
         decode_input_lens=decode_input_lens,
         log_dir=str(log_dir),
@@ -110,40 +115,40 @@ def yield_benchmark_sarathi_args(pp: int, tp: int):
     )
 
 
-def yield_benchmark_power_profiling(pp: int,
-                                    tp: int,
-                                    skip_existing: bool = True,
-                                    num_freqs: int = 11):
+def gen_power_profiling_args(pp: int,
+                             tp: int,
+                             skip_existing: bool = True,
+                             num_freqs: int = 11):
     expr_dir = (
         get_result_root() /
-        f'request_timing/2025-03-13_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
+        f'request_timing/2025-03-14_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
     )
 
     # Since we are swapping out `log_dir`, pass in `skip_existing=False` for
     # sub-generators, and check for existence in this function
-    arg_generators = {
+    args_dict = {
         'hybrid':
-        yield_benchmark_batch_args_sample_hybrid(num_samples=6000,
-                                                 num_freqs=num_freqs),
+        gen_benchmark_batch_args_sample_hybrid(num_samples=10000,
+                                               num_freqs=num_freqs),
         'prefill-only':
-        yield_benchmark_batch_args_sample_prefill_only(
-            num_samples=3000,
+        gen_benchmark_batch_args_sample_prefill_only(
+            num_samples=5000,
             num_freqs=num_freqs,
         ),
         'decode-only':
-        yield_benchmark_batch_args_sample_decode_only(num_samples=3000,
-                                                      num_freqs=num_freqs),
+        gen_benchmark_batch_args_sample_decode_only(num_samples=5000,
+                                                    num_freqs=num_freqs),
     }
-    for batch_type, arg_generator in arg_generators.items():
-        random.seed(0)
-        for i, args in enumerate(arg_generator):
+    args_all = []
+    for batch_type, args in args_dict.items():
+        for i, arg in enumerate(args):
             # Rewrite `args` as needed
-            sample_name = f'{batch_type}_{i:06d}_freq{args.gpu_freq_mhz}'
-            args.log_dir = str(expr_dir / sample_name)
-
-            if skip_existing and Path(args.log_dir).exists():
-                continue
-            yield args
+            sample_name = f'{batch_type}_{i:06d}_freq{arg.gpu_freq_mhz}_{hash(arg)}'  #noqa
+            arg.log_dir = str(expr_dir / sample_name)
+            args_all.append(arg)
+    if skip_existing:
+        args_all = [arg for arg in args_all if not Path(arg.log_dir).exists()]
+    return args_all
 
 
 def main(expr_fn: Callable):
@@ -161,14 +166,15 @@ def main(expr_fn: Callable):
     vllm_args = parser.parse_args(vllm_args)
 
     # Pass in a list instead of generator so tqdm prints progress
-    uvloop.run(benchmark_batch(vllm_args, list(expr_fn(tp=tp, pp=pp))))
+    params = expr_fn(tp=tp, pp=pp)
+    uvloop.run(benchmark_batch(vllm_args, params))
 
 
 if __name__ == '__main__':
     expr_fn = {
-        'batch': yield_benchmark_batch_args,
-        'idle-power': yield_benchmark_idle_power_args,
-        'sarathi-serve-sla': yield_benchmark_sarathi_args,
-        'power_profiling': yield_benchmark_power_profiling,
+        'batch': gen_benchmark_idle_power_args,
+        'idle-power': gen_benchmark_idle_power_args,
+        'sarathi-serve-sla': gen_sarathi_args,
+        'power_profiling': gen_power_profiling_args,
     }[sys.argv[1]]
     main(expr_fn)

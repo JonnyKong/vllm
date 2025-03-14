@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
-from benchmark_batch_driver import yield_benchmark_power_profiling
+from benchmark_batch_driver import gen_power_profiling_args
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -57,11 +57,8 @@ def load_data(model_type: str):
     freqs = []  # Store frequencies for grouping
 
     print('Loading data ...')
-    for args in tqdm(
-            list(
-                yield_benchmark_power_profiling(tp=1,
-                                                pp=1,
-                                                skip_existing=False))):
+    for args in tqdm(gen_power_profiling_args(tp=1, pp=1,
+                                              skip_existing=False)):
         if model_type not in args.log_dir:
             continue
         perf_path = Path(args.log_dir) / 'perf_metric.csv'

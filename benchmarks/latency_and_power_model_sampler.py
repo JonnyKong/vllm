@@ -7,6 +7,7 @@ from benchmark_utils import uniform_sample_sorted
 from matplotlib import pyplot as plt
 from scipy.stats import lognorm
 
+from vllm.platforms import current_platform
 from vllm.platforms.nvml_utils import nvml_get_available_freq
 
 ################ Knobs ###############
@@ -18,27 +19,27 @@ MAX_INPUT_LEN = 2048
 ######################################
 
 
-def yield_benchmark_batch_args_sample_hybrid(num_samples: int, num_freqs: int):
-    yield from _sample(num_samples=num_samples,
-                       num_freqs=num_freqs,
-                       enable_prefill=True,
-                       enable_decode=True)
+def gen_benchmark_batch_args_sample_hybrid(num_samples: int, num_freqs: int):
+    return _sample(num_samples=num_samples,
+                   num_freqs=num_freqs,
+                   enable_prefill=True,
+                   enable_decode=True)
 
 
-def yield_benchmark_batch_args_sample_prefill_only(num_samples: int,
-                                                   num_freqs: int):
-    yield from _sample(num_samples=num_samples,
-                       num_freqs=num_freqs,
-                       enable_prefill=True,
-                       enable_decode=False)
+def gen_benchmark_batch_args_sample_prefill_only(num_samples: int,
+                                                 num_freqs: int):
+    return _sample(num_samples=num_samples,
+                   num_freqs=num_freqs,
+                   enable_prefill=True,
+                   enable_decode=False)
 
 
-def yield_benchmark_batch_args_sample_decode_only(num_samples: int,
-                                                  num_freqs: int):
-    yield from _sample(num_samples=num_samples,
-                       num_freqs=num_freqs,
-                       enable_prefill=False,
-                       enable_decode=True)
+def gen_benchmark_batch_args_sample_decode_only(num_samples: int,
+                                                num_freqs: int):
+    return _sample(num_samples=num_samples,
+                   num_freqs=num_freqs,
+                   enable_prefill=False,
+                   enable_decode=True)
 
 
 def _get_lognorm_generator(shape: float,
@@ -85,7 +86,9 @@ def _sample(num_samples: int,
             enable_prefill: bool,
             enable_decode: bool,
             token_budget: int = 8192,
-            seq_budget: int = 2048):
+            seq_budget: int = 2048,
+            seed: int = 0):
+    current_platform.seed_everything(seed)
     assert enable_prefill or enable_decode
 
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
@@ -128,7 +131,7 @@ def _sample(num_samples: int,
             min_seconds=1,
         )
 
-    yield from (gen_one() for _ in range(num_samples))
+    return list(gen_one() for _ in range(num_samples))
 
 
 def get_cdf_data(raw_data, scale=1.0):
@@ -145,9 +148,9 @@ def get_cdf_data(raw_data, scale=1.0):
 
 if __name__ == '__main__':
     for fn in [
-            yield_benchmark_batch_args_sample_hybrid,
-            yield_benchmark_batch_args_sample_prefill_only,
-            yield_benchmark_batch_args_sample_decode_only,
+            gen_benchmark_batch_args_sample_hybrid,
+            gen_benchmark_batch_args_sample_prefill_only,
+            gen_benchmark_batch_args_sample_decode_only,
     ]:
         params = list(fn(num_samples=2000, num_freqs=11))
         dists_to_plot = {

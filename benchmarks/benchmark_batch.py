@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import contextlib
 import gc
+import hashlib
 import os
 import random
 import time
@@ -78,6 +79,14 @@ class BenchmarkBatchParam:
     # Run terminates when both reaches
     min_num_iters: int = 32
     min_seconds: int = 5
+
+    def __hash__(self):
+        hash_str = str(self.prefill_input_lens)
+        hash_str += str(self.decode_input_lens)
+        hash_str += str(self.gpu_freq_mhz)
+        hash_str += str(self.delay_time_min_s)
+        hash_str += str(self.delay_time_max_s)
+        return int(hashlib.md5(hash_str.encode()).hexdigest(), 16)
 
 
 async def benchmark_batch(
