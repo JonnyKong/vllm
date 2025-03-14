@@ -1,18 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 import pickle
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
-from benchmark_batch_driver import yield_benchmark_power_profiling
+from benchmark_batch_driver import gen_power_profiling_args
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 
-def main():
-    X, Y, freqs = load_data()
+def main(batch_type: Optional[str] = None):
+    """
+    `batch_type`: if None, train a single model for all 3 batch types.
+    """
+    if batch_type:
+        assert batch_type in ['hybrid', 'prefill-only', 'decode-only']
+    X, Y, freqs = load_data(batch_type)
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
@@ -45,17 +51,17 @@ def main():
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
 
 
-def load_data():
+def load_data(batch_type: Optional[str]):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
 
     print('Loading data ...')
     for args in tqdm(
-            list(
-                yield_benchmark_power_profiling(tp=1,
-                                                pp=1,
-                                                skip_existing=False))):
+            gen_power_profiling_args(tp=1,
+                                     pp=1,
+                                     skip_existing=False,
+                                     batch_type=batch_type)):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         power_path = Path(args.log_dir) / 'power_log.csv'
 
@@ -63,10 +69,14 @@ def load_data():
             print(f"Skipping {args.log_dir}, missing required files.")
             continue
 
-        feat = get_feat(args)
-        df_perf = pd.read_csv(perf_path)
-        df_power = pd.read_csv(power_path)
-        power = compute_average_power(df_perf, df_power)
+        try:
+            feat = get_feat(args, batch_type)
+            df_perf = pd.read_csv(perf_path)
+            df_power = pd.read_csv(power_path)
+            power = compute_average_power(df_perf, df_power)
+        except KeyError:
+            print('Error loading: ', args.log_dir)
+            continue
         assert not np.isnan(power)
 
         X.append(feat)
@@ -76,31 +86,49 @@ def load_data():
     return np.array(X), np.array(Y), np.array(freqs)
 
 
-def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
-    freq = float(p.gpu_freq_mhz)
+def get_feat(p: BenchmarkBatchParam, batch_type: Optional[str]) -> np.ndarray:
+    ret = np.array([p.gpu_freq_mhz], dtype=np.float32)
 
-    prefill_batch_size = len(p.prefill_input_lens)
-    prefill_len_sum = np.sum(p.prefill_input_lens)
-    prefill_len_std = np.std(p.prefill_input_lens)
-    prefill_len_max = np.max(p.prefill_input_lens)
+    if not batch_type or batch_type == 'prefill-only':
+        prefill_batch_size = len(p.prefill_input_lens)
+        if prefill_batch_size > 0:
+            prefill_len_sum = np.sum(p.prefill_input_lens)
+            prefill_len_std = np.std(p.prefill_input_lens)
+            prefill_len_max = np.max(p.prefill_input_lens)
+        else:
+            prefill_len_sum = 0.0
+            prefill_len_std = 0.0
+            prefill_len_max = 0.0
+        ret = np.hstack([
+            ret,
+            np.array([
+                prefill_batch_size,
+                prefill_len_sum,
+                prefill_len_std,
+                prefill_len_max,
+            ])
+        ])
 
-    decode_batch_size = len(p.decode_input_lens)
-    decode_len_sum = np.sum(p.decode_input_lens)
-    decode_len_std = np.std(p.decode_input_lens)
-    decode_len_max = np.max(p.decode_input_lens)
-
-    return np.array([
-        freq,
-        prefill_batch_size,
-        prefill_len_sum,
-        prefill_len_std,
-        prefill_len_max,
-        decode_batch_size,
-        decode_len_sum,
-        decode_len_std,
-        decode_len_max,
-    ],
-                    dtype=np.float32)
+    if not batch_type or batch_type == 'decode-only':
+        decode_batch_size = len(p.decode_input_lens)
+        if decode_batch_size > 0:
+            decode_len_sum = np.sum(p.decode_input_lens)
+            decode_len_std = np.std(p.decode_input_lens)
+            decode_len_max = np.max(p.decode_input_lens)
+        else:
+            decode_len_sum = 0.0
+            decode_len_std = 0.0
+            decode_len_max = 0.0
+        ret = np.hstack([
+            ret,
+            np.array([
+                decode_batch_size,
+                decode_len_sum,
+                decode_len_std,
+                decode_len_max,
+            ])
+        ])
+    return ret
 
 
 def filter_power_changes(df_power):
@@ -182,4 +210,4 @@ def compute_average_power(df_perf, df_power) -> float:
 
 
 if __name__ == '__main__':
-    main()
+    main(batch_type=None)

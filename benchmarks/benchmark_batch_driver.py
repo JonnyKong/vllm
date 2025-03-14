@@ -3,7 +3,7 @@ import itertools
 import os
 import sys
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
@@ -118,7 +118,8 @@ def gen_sarathi_args(pp: int, tp: int):
 def gen_power_profiling_args(pp: int,
                              tp: int,
                              skip_existing: bool = True,
-                             num_freqs: int = 11):
+                             num_freqs: int = 11,
+                             batch_type: Optional[str] = None):
     expr_dir = (
         get_result_root() /
         f'request_timing/2025-03-14_power-model-profiling/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
@@ -140,10 +141,12 @@ def gen_power_profiling_args(pp: int,
                                                     num_freqs=num_freqs),
     }
     args_all = []
-    for batch_type, args in args_dict.items():
+    for batch_type_, args in args_dict.items():
+        if batch_type and batch_type_ != batch_type:
+            continue
         for i, arg in enumerate(args):
             # Rewrite `args` as needed
-            sample_name = f'{batch_type}_{i:06d}_freq{arg.gpu_freq_mhz}_{hash(arg)}'  #noqa
+            sample_name = f'{batch_type_}_{i:06d}_freq{arg.gpu_freq_mhz}_{hash(arg)}'  #noqa
             arg.log_dir = str(expr_dir / sample_name)
             args_all.append(arg)
     if skip_existing:
