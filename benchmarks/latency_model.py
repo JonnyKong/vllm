@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_batch_driver import gen_power_profiling_args
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import FunctionTransformer
 from tqdm import tqdm
 
 
@@ -20,7 +22,10 @@ def main(batch_type: str):
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
     # Train Gradient Boosting Regressor
-    model = GradientBoostingRegressor(random_state=0, n_estimators=100)
+    model = TransformedTargetRegressor(
+        regressor=GradientBoostingRegressor(n_estimators=100, random_state=0),
+        transformer=FunctionTransformer(np.log, np.exp)  # Log transform Y
+    )
     model.fit(X_train, Y_train)
     with open(f'latency_model_{batch_type}.pkl', 'wb') as f:
         pickle.dump(model, f)
@@ -110,7 +115,7 @@ def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
 
     decode_batch_size = len(p.decode_input_lens)
     if len(p.decode_input_lens) == 0:
-        decode_batch_size = decode_len_sum = decode_len_std = decode_len_max = 0
+        decode_len_sum = decode_len_std = decode_len_max = 0
     else:
         decode_len_sum = np.sum(p.decode_input_lens)
         decode_len_std = np.std(p.decode_input_lens)
