@@ -1,15 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_batch_driver import gen_power_profiling_args
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.ensemble import GradientBoostingRegressor
+from lightgbm import LGBMRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import FunctionTransformer
 from tqdm import tqdm
 
 
@@ -20,18 +17,16 @@ def main(batch_type: str):
     print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
+    Y_train_log = np.log(Y_train)
 
     # Train Gradient Boosting Regressor
-    model = TransformedTargetRegressor(
-        regressor=GradientBoostingRegressor(n_estimators=100, random_state=0),
-        transformer=FunctionTransformer(np.log, np.exp)  # Log transform Y
-    )
-    model.fit(X_train, Y_train)
-    with open(f'latency_model_{batch_type}.pkl', 'wb') as f:
-        pickle.dump(model, f)
+    model = LGBMRegressor()
+    model.fit(X_train, Y_train_log)
+    model.booster_.save_model(f'latency_model_{batch_type}.txt')
 
     # Predict on test set
-    Y_pred = model.predict(X_test)
+    Y_pred_log = model.predict(X_test)
+    Y_pred = np.exp(Y_pred_log)
 
     # Compute absolute relative error
     abs_rel_error = np.abs((Y_test - Y_pred) / Y_test)
