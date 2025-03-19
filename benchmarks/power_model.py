@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-import pickle
 from pathlib import Path
 from typing import Optional
 
@@ -7,7 +6,7 @@ import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_batch_driver import gen_power_profiling_args
-from sklearn.ensemble import GradientBoostingRegressor
+from lightgbm import LGBMRegressor
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
@@ -22,13 +21,13 @@ def main(batch_type: Optional[str] = None):
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
 
-    model = GradientBoostingRegressor(random_state=0).fit(X_train, Y_train)
+    model = LGBMRegressor(random_state=0, n_jobs=1)
+    model.fit(X_train, Y_train)
     if batch_type:
-        model_name = f'power_model_{batch_type}.pkl'
+        model_name = f'power_model_{batch_type}.txt'
     else:
-        model_name = 'power_model.pkl'
-    with open(model_name, 'wb') as f:
-        pickle.dump(model, f)
+        model_name = 'power_model.txt'
+    model.booster_.save_model(model_name)
 
     # Predict on test set
     Y_pred = model.predict(X_test)
