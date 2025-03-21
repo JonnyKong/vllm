@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-import os
+import atexit
+import threading
 import time
-from abc import abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
 from typing import Dict, List, Optional, Type, Union, cast
@@ -723,47 +725,59 @@ class CSVLogger(StatLoggerBase):
                  filename: str,
                  disable_periodic_persist_to_disk: bool = False,
                  persist_to_disk_every: int = 100) -> None:
-        """
-        `disable_periodic_persist_to_disk`: Set this to false to disable
-        periodic log flush that blocks the vLLM operation, to get accurate
-        timings measurements.
-        """
-        self.filename = filename
+        self.filename = Path(filename)
         self.disable_periodic_persist_to_disk = disable_periodic_persist_to_disk
         self.persist_to_disk_every = persist_to_disk_every
 
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-        if os.path.exists(filename):
-            os.remove(filename)
+        self.filename.parent.mkdir(parents=True, exist_ok=True)
+        if self.filename.exists():
+            self.filename.unlink()
         self.iter = 0
-
-        # New data pending to be persisted to disk. Flushed on each disk write
         self.csv_buf: List[Dict] = []
+        self.buf_lock = threading.Lock()
+        self.executor = ThreadPoolExecutor(max_workers=1)
+
+        atexit.register(self._flush_remaining_sync)
 
     def increment_counter_and_maybe_persist_to_disk(self):
         self.iter += 1
-        if not self.disable_periodic_persist_to_disk \
-                and self.iter % self.persist_to_disk_every == 0:
+        if not self.disable_periodic_persist_to_disk and \
+           self.iter % self.persist_to_disk_every == 0:
             self.persist_to_disk()
 
     def persist_to_disk(self):
-        file_exists = os.path.isfile(self.filename)
+        with self.buf_lock:
+            data_to_write = self.csv_buf.copy()
+            self.csv_buf.clear()
 
-        # Append mode, write header only if file does not exist
-        pd.DataFrame(self.csv_buf).to_csv(self.filename,
-                                          mode='a',
-                                          header=not file_exists,
-                                          index=False)
-        logger.info("CSVLogger persisting %d entries to disk",
-                    len(self.csv_buf))
-        self.csv_buf.clear()
+        if not data_to_write:
+            return
 
-    @abstractmethod
+        self.executor.submit(self._write_to_csv, data_to_write)
+
+    def _write_to_csv(self, data: List[Dict]):
+        file_exists = self.filename.exists()
+        pd.DataFrame(data).to_csv(self.filename,
+                                  mode='a',
+                                  header=not file_exists,
+                                  index=False)
+        logger.info("CSVLogger persisted %d entries to disk", len(data))
+
     def log(self, stats: Stats) -> None:
-        raise NotImplementedError
+        with self.buf_lock:
+            self.csv_buf.append(stats.as_dict())
 
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         raise NotImplementedError
+
+    def _flush_remaining_sync(self):
+        with self.buf_lock:
+            data_to_write = self.csv_buf.copy()
+            self.csv_buf.clear()
+
+        if data_to_write:
+            self._write_to_csv(data_to_write)
+        self.executor.shutdown(wait=True)
 
 
 class PerfMetricCSVLogger(CSVLogger):
