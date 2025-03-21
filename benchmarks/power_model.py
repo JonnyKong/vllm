@@ -212,6 +212,46 @@ def compute_average_power(df_perf, df_power) -> float:
     return ret
 
 
+def load_data_to_df(batch_type: Optional[str]):
+    """
+    To human-readable format.
+    """
+    col_names: list[str] = ['freq']
+    if not batch_type or batch_type == 'prefill-only':
+        col_names.extend([
+            'prefill_bs', 'prefill_len_sum', 'prefill_len_std',
+            'prefill_len_max'
+        ])
+    if not batch_type or batch_type == 'decode-only':
+        col_names.extend([
+            'decode_bs', 'decode_len_sum', 'decode_len_std', 'decode_len_max'
+        ])
+    col_names.append('power')
+
+    rows = []
+    for args in tqdm(
+            gen_power_profiling_args(tp=1,
+                                     pp=1,
+                                     skip_existing=False,
+                                     batch_type=batch_type)):
+        perf_path = Path(args.log_dir) / 'perf_metric.csv'
+        power_path = Path(args.log_dir) / 'power_log.csv'
+
+        if not perf_path.exists() or not power_path.exists():
+            print(f"Skipping {args.log_dir}, missing required files.")
+            continue
+
+        feat = get_feat(args, batch_type)
+        df_perf = pd.read_csv(perf_path)
+        df_power = pd.read_csv(power_path)
+        power = compute_average_power(df_perf, df_power)
+        rows.append([*feat.tolist(), power])
+
+    savename = f'{batch_type}.csv' if batch_type else 'all.csv'
+    pd.DataFrame(rows, columns=col_names).to_csv(savename, index=False)
+
+
 if __name__ == '__main__':
     for batch_type in [None, 'prefill-only', 'decode-only', 'hybrid']:
+        load_data_to_df(batch_type)
         main(batch_type)
