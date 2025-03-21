@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import copy
+import gc
 import multiprocessing
 import os
 import time
@@ -440,6 +441,9 @@ class LLMEngine:
         if vllm_config.enable_circuit_breaker:
             self.circuit_breaker = SimpleCircuitBreaker(
                 self, mode='gpu_kv_cache_util')
+
+        if vllm_config.disable_python_gc:
+            gc.disable()
 
         self.tracer = None
         if self.observability_config.otlp_traces_endpoint:

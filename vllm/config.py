@@ -3306,6 +3306,7 @@ class VllmConfig:
     pretrained_rl_model_path: Optional[str] = None
     enable_idle_time_injection: bool = False
     enable_circuit_breaker: bool = False
+    disable_python_gc: bool = False
 
     def compute_hash(self) -> str:
         """

@@ -226,6 +226,7 @@ class EngineArgs:
     pretrained_rl_model_path: Optional[str] = None
     enable_idle_time_injection: bool = False
     enable_circuit_breaker: bool = False
+    disable_python_gc: bool = False
 
     def __post_init__(self):
         if not self.tokenizer:
@@ -1126,6 +1127,10 @@ class EngineArgs:
                             action='store_true',
                             default=EngineArgs.enable_circuit_breaker)
 
+        parser.add_argument('--disable-python-gc',
+                            action='store_true',
+                            default=EngineArgs.disable_python_gc)
+
         return parser
 
     @classmethod
@@ -1435,6 +1440,7 @@ class EngineArgs:
             pretrained_rl_model_path=self.pretrained_rl_model_path,
             enable_idle_time_injection=self.enable_idle_time_injection,
             enable_circuit_breaker=self.enable_circuit_breaker,
+            disable_python_gc=self.disable_python_gc,
         )
 
         return config
