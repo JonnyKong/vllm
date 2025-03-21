@@ -3,6 +3,7 @@ import atexit
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Counter as CollectionsCounter
@@ -765,7 +766,7 @@ class CSVLogger(StatLoggerBase):
 
     def log(self, stats: Stats) -> None:
         with self.buf_lock:
-            self.csv_buf.append(stats.as_dict())
+            self.csv_buf.append(asdict(stats))
 
     def info(self, type: str, obj: SupportsMetricsInfo) -> None:
         raise NotImplementedError
