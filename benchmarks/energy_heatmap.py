@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-import contextlib
-import gc
 import random
 
 import uvloop
@@ -11,19 +9,6 @@ from vllm.logger import init_logger
 from vllm.utils import FlexibleArgumentParser
 
 logger = init_logger(__name__)
-
-
-@contextlib.contextmanager
-def disable_python_gc():
-    was_enabled = gc.isenabled()
-    gc.disable()
-    try:
-        yield
-    finally:
-        if was_enabled:
-            gc.enable()
-            gc.collect()
-
 
 if __name__ == '__main__':
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
