@@ -3,9 +3,11 @@ import random
 
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
+from benchmark_utils import uniform_sample_sorted
 
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.logger import init_logger
+from vllm.platforms.nvml_utils import nvml_get_available_freq
 from vllm.utils import FlexibleArgumentParser
 
 logger = init_logger(__name__)
@@ -22,7 +24,8 @@ if __name__ == '__main__':
     vllm_args = parser.parse_args(vllm_args)
 
     benchmark_batch_param = []
-    test_freqs = [210, 360, 510, 675, 825, 975, 1125, 1275, 1440, 1590, 1740]
+    test_freqs = test_freqs = uniform_sample_sorted(nvml_get_available_freq(),
+                                                    11)
     test_batches = [i for i in range(4, 450, 4)]
     for batch_size in test_batches:
         for freq in test_freqs:
