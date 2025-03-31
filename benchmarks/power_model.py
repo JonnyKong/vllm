@@ -5,8 +5,11 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
-from benchmark_batch_driver import gen_power_profiling_args
+from benchmark_batch_driver import (
+    gen_args_test_energy_linearity_of_hybrid_batches, gen_power_profiling_args)
+from latency_and_power_model_sampler import get_cdf_data
 from lightgbm import LGBMRegressor
+from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
@@ -229,11 +232,10 @@ def load_data_to_df(batch_type: Optional[str]):
     col_names.append('power')
 
     rows = []
-    for args in tqdm(
-            gen_power_profiling_args(tp=1,
-                                     pp=1,
-                                     skip_existing=False,
-                                     batch_type=batch_type)):
+    for args in gen_power_profiling_args(tp=1,
+                                         pp=1,
+                                         skip_existing=False,
+                                         batch_type=batch_type):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         power_path = Path(args.log_dir) / 'power_log.csv'
 
@@ -251,7 +253,108 @@ def load_data_to_df(batch_type: Optional[str]):
     pd.DataFrame(rows, columns=col_names).to_csv(savename, index=False)
 
 
+def test_energy_linearity_of_hybrid_batches():
+    savename = Path(
+        '/export2/kong102/energy_efficient_serving_results/request_timing/2025-03-30_test_energy_linearity_of_hybrid_batches/A40-pp1-tp1_llama8-3b/energy_linearity.csv'
+    )
+    if not savename.exists():
+        read_energy_linearity_of_hybrid_batches_into_csv(savename)
+
+    df = pd.read_csv(savename)
+
+    total_energy = df["prefill-energy"] + df["decode-energy"]
+    energy_ratio = total_energy / df["hybrid-energy"]
+
+    total_latency = df["prefill-latency"] + df["decode-latency"]
+    latency_ratio = total_latency / df["hybrid-latency"]
+
+    # Get CDF data
+    energy_cdf_x, energy_cdf_y = get_cdf_data(energy_ratio.dropna())
+    latency_cdf_x, latency_cdf_y = get_cdf_data(latency_ratio.dropna())
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    ax.plot(energy_cdf_x,
+            energy_cdf_y,
+            label='Energy Ratio CDF',
+            linestyle='-',
+            marker='')
+    ax.plot(latency_cdf_x,
+            latency_cdf_y,
+            label='Latency Ratio CDF',
+            linestyle='--',
+            marker='')
+
+    ax.set_xlabel('Ratio (Sum of Prefill + Decode) / Hybrid')
+    ax.set_ylabel('CDF (%)')
+    ax.set_title('CDF of Energy and Latency Ratios')
+    ax.grid(True)
+    ax.legend()
+
+    plt.tight_layout()
+    plt.savefig(savename.parent / 'energy_linearity_of_hybrid_batches.pdf')
+
+
+def read_energy_linearity_of_hybrid_batches_into_csv(savename: Path):
+    col_names: list[str] = [
+        'freq',
+        'prefill-bs',
+        'decode-bs',
+        'hybrid-energy',
+        'hybrid-latency',
+        'prefill-energy',
+        'prefill-latency',
+        'decode-energy',
+        'decode-latency',
+    ]
+    rows = []
+
+    args_hybrid = gen_power_profiling_args(tp=1,
+                                           pp=1,
+                                           skip_existing=False,
+                                           batch_type='hybrid')
+    args_prefill_decode = gen_args_test_energy_linearity_of_hybrid_batches(
+        tp=1, pp=1, skip_existing=False)
+    args_prefill = args_prefill_decode[::2]
+    args_decode = args_prefill_decode[1::2]
+
+    rows = []
+    for arg_hybrid, arg_prefill, arg_decode in \
+            tqdm(zip(args_hybrid, args_prefill, args_decode)):
+        assert np.allclose(arg_hybrid.prefill_input_lens,
+                           arg_prefill.prefill_input_lens)
+        assert np.allclose(arg_hybrid.decode_input_lens,
+                           arg_decode.decode_input_lens)
+        assert arg_prefill.decode_input_lens == []
+        assert arg_decode.prefill_input_lens == []
+
+        row = [
+            arg_hybrid.gpu_freq_mhz,
+            len(arg_hybrid.prefill_input_lens),
+            len(arg_hybrid.decode_input_lens)
+        ]
+        try:
+            for arg in [arg_hybrid, arg_prefill, arg_decode]:
+                perf_path = Path(arg.log_dir) / 'perf_metric.csv'
+                power_path = Path(arg.log_dir) / 'power_log.csv'
+                df_perf = pd.read_csv(perf_path)
+                df_power = pd.read_csv(power_path)
+
+                power = compute_average_power(df_perf, df_power)
+                latency = (df_perf['pp_rank_0_end'] -
+                           df_perf['pp_rank_0_start']).iloc[1:].mean()
+                energy = power * latency
+                row.extend([energy, latency])
+        except (FileNotFoundError, KeyError):
+            continue
+        rows.append(row)
+
+    pd.DataFrame(rows, columns=col_names).to_csv(savename, index=False)
+
+
 if __name__ == '__main__':
     for batch_type in [None, 'prefill-only', 'decode-only', 'hybrid']:
         load_data_to_df(batch_type)
         main(batch_type)
+    test_energy_linearity_of_hybrid_batches()

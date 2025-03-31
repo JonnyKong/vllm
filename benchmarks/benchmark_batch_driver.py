@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import copy
 import itertools
 import os
 import sys
@@ -154,6 +155,42 @@ def gen_power_profiling_args(pp: int,
     return args_all
 
 
+def gen_args_test_energy_linearity_of_hybrid_batches(pp: int,
+                                                     tp: int,
+                                                     skip_existing: bool = True,
+                                                     num_freqs: int = 11):
+    """
+    For each hybrid batch, break it down in to prefill-only and decode-only
+    batches, to see if energy of the hybrid batch is the sum of prefill and
+    decode batches.
+    """
+    expr_dir = (
+        get_result_root() /
+        f'request_timing/2025-03-30_test_energy_linearity_of_hybrid_batches/{get_gpu_name()}-pp{pp}-tp{tp}_llama8-3b'
+    )
+    args = gen_power_profiling_args(pp,
+                                    tp,
+                                    skip_existing=False,
+                                    num_freqs=num_freqs,
+                                    batch_type='hybrid')
+    ret = []
+    for arg in args:
+        arg_prefill = copy.deepcopy(arg)
+        arg_prefill.decode_input_lens = []
+        arg_prefill.log_dir = str(
+            expr_dir / Path(arg.log_dir).stem) + '_prefill-only-part'
+        if not (skip_existing and Path(arg_prefill.log_dir).exists()):
+            ret.append(arg_prefill)
+
+        arg_decode = copy.deepcopy(arg)
+        arg_decode.prefill_input_lens = []
+        arg_decode.log_dir = str(
+            expr_dir / Path(arg.log_dir).stem) + '_decode-only-part'
+        if not (skip_existing and Path(arg_decode.log_dir).exists()):
+            ret.append(arg_decode)
+    return ret
+
+
 def main(expr_fn: Callable):
     tp = 1
     pp = 1
@@ -175,9 +212,15 @@ def main(expr_fn: Callable):
 
 if __name__ == '__main__':
     expr_fn = {
-        'batch': gen_benchmark_idle_power_args,
-        'idle-power': gen_benchmark_idle_power_args,
-        'sarathi-serve-sla': gen_sarathi_args,
-        'power_profiling': gen_power_profiling_args,
+        'batch':
+        gen_benchmark_idle_power_args,
+        'idle-power':
+        gen_benchmark_idle_power_args,
+        'sarathi-serve-sla':
+        gen_sarathi_args,
+        'power_profiling':
+        gen_power_profiling_args,
+        'power_profiling_test_linearity_of_hybrid_batches':
+        gen_args_test_energy_linearity_of_hybrid_batches,
     }[sys.argv[1]]
     main(expr_fn)

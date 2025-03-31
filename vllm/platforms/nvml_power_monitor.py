@@ -148,6 +148,7 @@ def measure_power(csv_filename,
                                             power_queue))
     process.start()
     try:
+        logger.info("Power monitoring process starting ...")
         yield
     finally:
         process.terminate()
