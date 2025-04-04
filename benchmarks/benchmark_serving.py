@@ -29,14 +29,17 @@ import gc
 import json
 import os
 import random
+import sys
 import time
 import warnings
 from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import pandas as pd
 from backend_request_func import (ASYNC_REQUEST_FUNCS, RequestFuncInput,
                                   RequestFuncOutput)
 from tqdm.asyncio import tqdm
@@ -132,6 +135,43 @@ async def get_request(
         interval = np.random.gamma(shape=burstiness, scale=theta)
         # The next request will be sent after the interval.
         await asyncio.sleep(interval)
+
+
+async def get_request_from_trace(
+    trace_path: Path,
+    tokenizer: PreTrainedTokenizerBase,
+    max_num_reqs: int = sys.maxsize,
+) -> AsyncGenerator[SampleRequest, None]:
+    df = pd.read_csv(trace_path)
+    df = df.iloc[:max_num_reqs]
+    arrived_at_arr = df['arrived_at'].tolist()
+    requests: list[SampleRequest] = []
+
+    vocab_size = tokenizer.vocab_size
+    offsets = np.random.randint(0, vocab_size, size=len(df))
+
+    # Construct requests
+    for i, (num_prefill_tokens, num_decode_tokens) in enumerate(
+            zip(df['num_prefill_tokens'].tolist(),
+                df['num_decode_tokens'].tolist())):
+        token_sequence = ((offsets[i] + i + np.arange(num_prefill_tokens)) %
+                          vocab_size).tolist()
+        prompt = tokenizer.decode(token_sequence)
+        requests.append(
+            SampleRequest(
+                prompt=prompt,
+                prompt_len=num_prefill_tokens,
+                expected_output_len=num_decode_tokens,
+            ))
+
+    # Issue requests
+    t_start = time.perf_counter()
+    for arrived_at, request in zip(arrived_at_arr, requests):
+        time_to_sleep = arrived_at - (time.perf_counter() - t_start)
+        if time_to_sleep > 0:
+            await asyncio.sleep(time_to_sleep)
+        # print('yield request at time: ', time.perf_counter() - t_start)
+        yield request
 
 
 def calculate_metrics(
@@ -261,6 +301,7 @@ async def benchmark(
     goodput_config_dict: dict[str, float],
     max_concurrency: Optional[int],
     lora_modules: Optional[Iterable[str]],
+    args: argparse.Namespace,
 ):
     if backend in ASYNC_REQUEST_FUNCS:
         request_func = ASYNC_REQUEST_FUNCS[backend]
@@ -347,7 +388,17 @@ async def benchmark(
 
     benchmark_start_time = time.perf_counter()
     tasks: list[asyncio.Task] = []
-    async for request in get_request(input_requests, request_rate, burstiness):
+
+    if args.dataset_name == "trace":
+        request_gen = get_request_from_trace(
+            trace_path=args.dataset_path,
+            tokenizer=tokenizer,
+            max_num_reqs=args.num_prompts,
+        )
+    else:
+        request_gen = get_request(input_requests, request_rate, burstiness)
+
+    async for request in request_gen:
         prompt, prompt_len, output_len, mm_content = request.prompt, \
             request.prompt_len, request.expected_output_len, \
                 request.multi_modal_data
@@ -601,6 +652,16 @@ def main(args: argparse.Namespace):
             random_seed=args.seed,
             output_len=args.hf_output_len,
         )
+    elif args.dataset_name == "trace":
+        # Include one random request for initial profiling
+        input_requests = RandomDataset().sample(
+            tokenizer=tokenizer,
+            num_requests=1,
+            prefix_len=args.random_prefix_len,
+            input_len=args.random_input_len,
+            output_len=args.random_output_len,
+            range_ratio=args.random_range_ratio,
+        )
 
     else:
         # For datasets that follow a similar structure, use a mapping.
@@ -659,6 +720,7 @@ def main(args: argparse.Namespace):
             goodput_config_dict=goodput_config_dict,
             max_concurrency=args.max_concurrency,
             lora_modules=args.lora_modules,
+            args=args,
         ))
 
     # Save config and results to json
@@ -744,7 +806,7 @@ if __name__ == "__main__":
         "--dataset-name",
         type=str,
         default="sharegpt",
-        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf"],
+        choices=["sharegpt", "burstgpt", "sonnet", "random", "hf", "trace"],
         help="Name of the dataset to benchmark on.",
     )
     parser.add_argument("--dataset-path",
