@@ -369,7 +369,9 @@ async def benchmark(
     print(f"Burstiness factor: {burstiness} ({distribution})")
     print(f"Maximum request concurrency: {max_concurrency}")
 
-    pbar = None if disable_tqdm else tqdm(total=len(input_requests))
+    num_requests = (args.num_prompts
+                    if args.dataset_name == "trace" else len(input_requests))
+    pbar = None if disable_tqdm else tqdm(total=num_requests)
 
     # This can be used once the minimum Python version is 3.10 or higher,
     # and it will simplify the code in limited_request_func.
