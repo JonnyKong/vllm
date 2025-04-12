@@ -191,6 +191,33 @@ def gen_args_test_energy_linearity_of_hybrid_batches(pp: int,
     return ret
 
 
+def gen_chunked_prefill_args(tp: int,
+                             pp: int,
+                             skip_existing: bool = False,
+                             num_freqs: int = 11):
+    params = []
+    decode_bss = [0, 100, 200, 300, 400]
+    decode_len = 200
+    for decode_bs in decode_bss:
+        decode_lens = [decode_len] * decode_bs
+        for i in range(5):
+            prefill_lens = [1024 * (i + 1)]
+            prefill_completed_lens = [1024 * i]
+            params.append(
+                BenchmarkBatchParam(
+                    prefill_input_lens=prefill_lens,
+                    prefill_completed_input_lens=prefill_completed_lens,
+                    decode_input_lens=decode_lens,
+                    log_dir=
+                    "/home/hemingxuan0926/datla/vllm/benchmarks/tmp/" + \
+                    f"results_{prefill_lens[0]}_{decode_bs}",
+                    gpu_freq_mhz=1125,
+                    min_num_iters=2,
+                    min_seconds=1,
+                ))
+    return params
+
+
 def main(expr_fn: Callable):
     tp = 1
     pp = 1
@@ -199,7 +226,8 @@ def main(expr_fn: Callable):
                  f"-tp {tp} "
                  f"-pp {pp} "
                  "--disable-async-output-proc "
-                 "--max-num-seqs 1024 --max-num-batched-tokens 8192 "
+                 "--max-num-seqs 512 --max-num-batched-tokens 4096 "
+                 "--max-model-len 4096 "
                  "--collect-detailed-traces worker").split()
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
@@ -207,20 +235,26 @@ def main(expr_fn: Callable):
 
     # Pass in a list instead of generator so tqdm prints progress
     params = expr_fn(tp=tp, pp=pp)
-    uvloop.run(benchmark_batch(vllm_args, params))
+    latencies = []
+    uvloop.run(benchmark_batch(vllm_args, params, latencies))
+    for i, param in enumerate(params):
+        print(
+            "(Completed, total, decode_bs): " + \
+            f"({param.prefill_completed_input_lens[0]}, " + \
+            f"{param.prefill_input_lens[0]}, " + \
+            f"{len(param.decode_input_lens)}) " + \
+            f"- Latency: {latencies[i][2]}"
+        )
 
 
 if __name__ == '__main__':
     expr_fn = {
-        'batch':
-        gen_benchmark_idle_power_args,
-        'idle-power':
-        gen_benchmark_idle_power_args,
-        'sarathi-serve-sla':
-        gen_sarathi_args,
-        'power_profiling':
-        gen_power_profiling_args,
+        'batch': gen_benchmark_idle_power_args,
+        'idle-power': gen_benchmark_idle_power_args,
+        'sarathi-serve-sla': gen_sarathi_args,
+        'power_profiling': gen_power_profiling_args,
         'power_profiling_test_linearity_of_hybrid_batches':
         gen_args_test_energy_linearity_of_hybrid_batches,
+        'chunked_prefill': gen_chunked_prefill_args,
     }[sys.argv[1]]
     main(expr_fn)

@@ -8,7 +8,7 @@ import os
 import random
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Optional
 
@@ -70,6 +70,7 @@ class BenchmarkBatchParam:
     decode_input_lens: list[int]
     log_dir: str
     gpu_freq_mhz: int
+    prefill_completed_input_lens: list[int] = field(default_factory=list)
     gpu_power_meas_interval: float = 0.01
 
     # Delay before issuing each batch, drawn from uniform distribution
@@ -202,17 +203,25 @@ def build_dummy_execute_model_request(
         llm: AsyncLLMEngine, tokenizer: PreTrainedTokenizerBase,
         benchmark_batch_param: BenchmarkBatchParam):
     seq_group_metadata_list: list[SequenceGroupMetadata] = []
-    for input_len in benchmark_batch_param.prefill_input_lens:
+    for i, input_len in enumerate(benchmark_batch_param.prefill_input_lens):
+        if benchmark_batch_param.prefill_completed_input_lens and (i < len(
+                benchmark_batch_param.prefill_completed_input_lens)):
+            completed_input_len = \
+                benchmark_batch_param.prefill_completed_input_lens[i]
+        else:
+            completed_input_len = 0
         seq_group_metadata_list.append(
             build_dummy_seq_group_metadata(llm,
                                            tokenizer,
                                            input_len,
+                                           completed_input_len,
                                            is_prompt=True))
     for input_len in benchmark_batch_param.decode_input_lens:
         seq_group_metadata_list.append(
             build_dummy_seq_group_metadata(llm,
                                            tokenizer,
                                            input_len,
+                                           input_len - 1,
                                            is_prompt=False))
     return ExecuteModelRequest(seq_group_metadata_list=seq_group_metadata_list,
                                # All the rest stay as default
@@ -224,6 +233,7 @@ def build_dummy_seq_group_metadata(
     llm: AsyncLLMEngine,
     tokenizer: PreTrainedTokenizerBase,
     input_len: int,
+    completed_input_len: int,
     is_prompt: bool,
 ) -> SequenceGroupMetadata:
     """
@@ -232,8 +242,7 @@ def build_dummy_seq_group_metadata(
     seq = SequenceData.from_seqs([
         random.randint(0, tokenizer.vocab_size - 1) for _ in range(input_len)
     ])
-    if not is_prompt:
-        seq.update_num_computed_tokens(input_len - 1)
+    seq.update_num_computed_tokens(completed_input_len)
 
     seq_data: dict[int, SequenceData] = {0: seq}
 
