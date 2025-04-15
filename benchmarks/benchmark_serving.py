@@ -170,7 +170,6 @@ async def get_request_from_trace(
         time_to_sleep = arrived_at - (time.perf_counter() - t_start)
         if time_to_sleep > 0:
             await asyncio.sleep(time_to_sleep)
-        # print('yield request at time: ', time.perf_counter() - t_start)
         yield request
 
 
@@ -442,6 +441,11 @@ async def benchmark(
         pbar.close()
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
+
+    if args.dataset_name == "trace":
+        # TODO: `input_requests` is empty in this case, will crash
+        # `calculate_metrics()`
+        return
 
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,

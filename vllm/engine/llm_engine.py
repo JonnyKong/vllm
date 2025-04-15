@@ -1777,6 +1777,8 @@ class LLMEngine:
         # Iteration stats
         num_prompt_tokens_iter = 0
         num_generation_tokens_iter = 0
+        num_precomputed_tokens_per_req_iter = []
+        chunk_size_per_req_iter = []
         num_tokens_iter = 0
         batch_size_prompt_iter = 0
         batch_size_generation_iter = 0
@@ -1885,6 +1887,16 @@ class LLMEngine:
                             seq_group.state.current_step - 1
                     batch_size_generation_iter += 1
 
+                # num_computed_tokens have been incremented by
+                # `token_chunk_size` tokens computed in the current step, we
+                # decrement it to reflect the count before this step
+                num_precomputed_tokens_per_req_iter.append(
+                    scheduled_seq_group.seq_group.get_seqs()
+                    [0].get_num_computed_tokens() -
+                    scheduled_seq_group.token_chunk_size)
+                chunk_size_per_req_iter.append(
+                    scheduled_seq_group.token_chunk_size)
+
                 # Because of chunked prefill, we can have a single sequence
                 # group that does multiple prompt_runs. To prevent logging
                 # the same metadata more than once per request, we standardize
@@ -1978,6 +1990,9 @@ class LLMEngine:
             # Iteration stats
             num_prompt_tokens_iter=num_prompt_tokens_iter,
             num_generation_tokens_iter=num_generation_tokens_iter,
+            num_precomputed_tokens_per_req_iter=
+            num_precomputed_tokens_per_req_iter,
+            chunk_size_per_req_iter=chunk_size_per_req_iter,
             num_tokens_iter=num_tokens_iter,
             batch_size_prompt_iter=batch_size_prompt_iter,
             batch_size_generation_iter=batch_size_generation_iter,

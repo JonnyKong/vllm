@@ -45,6 +45,8 @@ class Stats:
     # Iteration stats (should have _iter suffix)
     num_prompt_tokens_iter: int
     num_generation_tokens_iter: int
+    num_precomputed_tokens_per_req_iter: List[int]
+    chunk_size_per_req_iter: List[int]
     num_tokens_iter: int
     batch_size_prompt_iter: int
     batch_size_generation_iter: int
