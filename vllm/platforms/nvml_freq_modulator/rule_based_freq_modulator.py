@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-from .nvml_freq_modulator import NvmlFreqModulator
+from .nvml_freq_modulator import InProcNvmlFreqModulator
 
 
-class RuleBasedNvmlFreqModulator(NvmlFreqModulator):
+class RuleBasedNvmlFreqModulator(InProcNvmlFreqModulator):
     '''
     A rule-based implementation of NvmlFreqModulator. Adjusts the GPU frequency
     based on the fraction of active tasks in the scheduler.

@@ -48,7 +48,7 @@ from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
-    NvmlFreqModulator)
+    NvmlFreqModulatorInterface)
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator_factory import (
     nvml_freq_modulator_factory)
 from vllm.platforms.nvml_power_monitor import start_nvml_power_monitor
@@ -427,7 +427,7 @@ class LLMEngine:
                 daemon=True)
             self.power_monitor_process.start()
 
-        self.freq_modulator: Optional[NvmlFreqModulator] = None
+        self.freq_modulator: Optional[NvmlFreqModulatorInterface] = None
         if vllm_config.enable_freq_mod:
             self.freq_modulator = nvml_freq_modulator_factory(
                 vllm_config, self)
