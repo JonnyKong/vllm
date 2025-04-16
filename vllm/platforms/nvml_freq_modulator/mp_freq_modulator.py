@@ -99,7 +99,8 @@ class _MPNvmlFreqModulatorServer:
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
-            # selected_freq = self._get_next_freq_brute_force(env, future_obs, info, prefill_cycles)
+            # selected_freq = self._get_next_freq_brute_force(
+            #         env, future_obs, info, prefill_cycles)
             selected_freq = self._get_next_freq_dp(future_states,
                                                    prefill_cycles)
             print(f"Selected freq: {selected_freq}")
@@ -194,8 +195,8 @@ class _MPNvmlFreqModulatorServer:
     def get_future_states(self, states,
                           future_window: int) -> tuple[list, list]:
         """
-        Get the future observation for the given index.
-        The future observation is a list of observations for the next `future_windows` batches.
+        Get the future observation for the given index. The future observation
+        is a list of observations for the next `future_windows` batches.
         Assumptions:
             - prefills are (poorly) chunked now
             - rough waiting request using a sampled distribution
@@ -219,7 +220,6 @@ class _MPNvmlFreqModulatorServer:
         num_prefill_tokens = states['wait_queue_num_prefill_tokens_per_req']
         num_processed_tokens = states[
             'wait_queue_num_processed_tokens_per_req']
-        waiting_times = states['wait_queue_waiting_time_per_req']
 
         dummy_wait_queue = [
             m - n for m, n in zip(num_prefill_tokens, num_processed_tokens)
