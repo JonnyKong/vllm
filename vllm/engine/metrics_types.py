@@ -33,6 +33,10 @@ class Stats:
     num_waiting_sys: int
     num_swapped_sys: int
     num_waiting_tokens_sys: int
+    running_queue_num_tokens_per_req: List[int]
+    wait_queue_num_prefill_tokens_per_req: List[int]
+    wait_queue_num_processed_tokens_per_req: List[int]
+    wait_queue_waiting_time_per_req: List[float]
     #   KV Cache Usage in %
     gpu_cache_usage_sys: float
     cpu_cache_usage_sys: float

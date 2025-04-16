@@ -16,12 +16,27 @@ from .nvml_freq_modulator import NvmlFreqModulatorInterface
 
 logger = init_logger(__name__)
 
+# Change this accordingly
+PATH_TO_MODELS = Path.home() / 'EnergyEfficientServing/vidur/artifacts'
+
 
 class FreqModMsg(msgspec.Struct):
     """
     Msg from client to server.
     """
+    # Regarding the next batch
     num_prefills: int
+    num_decodes: int
+    prefill_len_sum: int
+    prefill_len_max: int
+    prefill_len_std: float
+    decode_len_sum: int
+    decode_len_max: int
+    decode_len_std: float
+    # Regarding the waiting queue
+    wait_queue_num_prefill_tokens_per_req: list[int]
+    wait_queue_num_processed_tokens_per_req: list[int]
+    wait_queue_waiting_time_per_req: list[float]
 
 
 class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
@@ -37,22 +52,38 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
     ):
         self.llm_engine = llm_engine
 
-        self.encoder = msgspec.msgpack.Encoder()
-
         self.q: Queue = Queue()
-        self.server = _MPNvmlFreqModulatorServer(freq_choices, self.q,
-                                                 "./assets")
+        self.server = _MPNvmlFreqModulatorServer(freq_choices, self.q)
         self.server_process = Process(target=self.server.run, daemon=True)
         self.server_process.start()
 
     def step(self, stats: Optional[Stats]) -> None:
-        msg = self.build_msg()
-        msg_encoded = self.encoder.encode(msg)
-        self.q.put(msg_encoded)
+        if stats:
+            msg = self.build_msg(stats)
+            msg_encoded = msgspec.msgpack.encode(msg)
+            self.q.put(msg_encoded)
 
     @staticmethod
-    def build_msg() -> FreqModMsg:
-        return FreqModMsg(num_prefills=0, )
+    def build_msg(stats: Stats) -> FreqModMsg:
+        return FreqModMsg(
+            num_prefills=stats.num_waiting_sys,
+            num_decodes=stats.num_running_sys,
+            prefill_len_sum=0,
+            prefill_len_max=0,
+            prefill_len_std=0,
+            decode_len_sum=sum(stats.running_queue_num_tokens_per_req),
+            decode_len_max=(max(stats.running_queue_num_tokens_per_req) if len(
+                stats.running_queue_num_tokens_per_req) > 0 else 0),
+            decode_len_std=(np.std(
+                stats.running_queue_num_tokens_per_req).item() if len(
+                    stats.running_queue_num_tokens_per_req) > 0 else 0.0),
+            wait_queue_num_prefill_tokens_per_req=stats.
+            wait_queue_num_prefill_tokens_per_req,
+            wait_queue_num_processed_tokens_per_req=stats.
+            wait_queue_num_processed_tokens_per_req,
+            wait_queue_waiting_time_per_req=stats.
+            wait_queue_waiting_time_per_req,
+        )
 
 
 class _MPNvmlFreqModulatorServer:
@@ -61,7 +92,6 @@ class _MPNvmlFreqModulatorServer:
         self,
         freq_choices: list[int],
         q: Queue,
-        path_to_models: str,
         future_window: int = 2,
         tbt_sla: float = 0.25,
         ttft_sla: float = 1.0,
@@ -73,8 +103,8 @@ class _MPNvmlFreqModulatorServer:
         self.tbt_sla = tbt_sla
         self.ttft_sla = ttft_sla
 
-        latency_model_dir = Path(path_to_models)
-        power_model_dir = Path(path_to_models)
+        latency_model_dir = PATH_TO_MODELS / 'latency_model' / 'a40_llama8-3b'
+        power_model_dir = PATH_TO_MODELS / 'power_model' / 'a40_llama8-3b'
 
         self.power_model = Booster(model_file=power_model_dir /
                                    'power_model.txt')
@@ -85,17 +115,17 @@ class _MPNvmlFreqModulatorServer:
         self.latency_model_hybrid = Booster(model_file=latency_model_dir /
                                             'latency_model_hybrid.txt')
 
-        self.decoder = msgspec.msgpack.Decoder()
-
     def run(self):
         while True:
-            states: FreqModMsg = self.decoder.decode(self.q.get())
+            # states: FreqModMsg = self.decoder.decode(self.q.get())
+            states: FreqModMsg = msgspec.msgpack.decode(self.q.get(),
+                                                        type=FreqModMsg)
 
             future_states, prefill_cycles = self.get_future_states(
                 states, self.future_windows)
 
             num_waiting_reqs = len(
-                states['wait_queue_num_prefill_tokens_per_req'])
+                states.wait_queue_num_prefill_tokens_per_req)
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
@@ -105,7 +135,8 @@ class _MPNvmlFreqModulatorServer:
                                                    prefill_cycles)
             print(f"Selected freq: {selected_freq}")
 
-    def _get_next_freq_dp(self, future_states, prefill_cycles):
+    def _get_next_freq_dp(self, future_states: list[FreqModMsg],
+                          prefill_cycles):
         """
         - Initialization:
             - use the highest freq for every future window
@@ -170,8 +201,8 @@ class _MPNvmlFreqModulatorServer:
             time_till_finish_per_req = time_till_finish_per_batch[
                 np.array(prefill_cycles, dtype=int) - 1, :]
             waiting_time_per_req = np.array(
-                future_states[0]['wait_queue_waiting_time_per_req']
-                [:len(prefill_cycles)])[:, None]
+                future_states[0].
+                wait_queue_waiting_time_per_req[:len(prefill_cycles)])[:, None]
             ttft_arr = time_till_finish_per_req + waiting_time_per_req
             sla_ttft_mask = np.all(ttft_arr <= self.ttft_sla, axis=0)
 
@@ -192,7 +223,7 @@ class _MPNvmlFreqModulatorServer:
         selected_freq = freq_choices_desc[selected_freq_ids[0]]
         return self.freq_choices.index(selected_freq)
 
-    def get_future_states(self, states,
+    def get_future_states(self, states: FreqModMsg,
                           future_window: int) -> tuple[list, list]:
         """
         Get the future observation for the given index. The future observation
@@ -207,19 +238,18 @@ class _MPNvmlFreqModulatorServer:
         # how many iterations it will take to get the first token
         prefill_cycles = []
 
-        num_prefills = states['num_prefills']
-        num_decodes = states['num_decodes']
-        prefill_len_sum = states['prefill_len_sum']
-        prefill_len_max = states['prefill_len_max']
-        prefill_len_std = states['prefill_len_std']
-        decode_len_sum = states['decode_len_sum']
-        decode_len_max = states['decode_len_max']
-        decode_len_std = states['decode_len_std']
+        num_prefills = states.num_prefills
+        num_decodes = states.num_decodes
+        prefill_len_sum = states.prefill_len_sum
+        prefill_len_max = states.prefill_len_max
+        prefill_len_std = states.prefill_len_std
+        decode_len_sum = states.decode_len_sum
+        decode_len_max = states.decode_len_max
+        decode_len_std = states.decode_len_std
 
         # Construct a dummy wait queue to simulate future chunked prefills
-        num_prefill_tokens = states['wait_queue_num_prefill_tokens_per_req']
-        num_processed_tokens = states[
-            'wait_queue_num_processed_tokens_per_req']
+        num_prefill_tokens = states.wait_queue_num_prefill_tokens_per_req
+        num_processed_tokens = states.wait_queue_num_processed_tokens_per_req
 
         dummy_wait_queue = [
             m - n for m, n in zip(num_prefill_tokens, num_processed_tokens)
@@ -251,39 +281,40 @@ class _MPNvmlFreqModulatorServer:
 
             num_prefills = len(prefills)
             if num_prefills > 0:
-                prefill_len_sum = np.sum(prefills)
+                prefill_len_sum = np.sum(prefills).item()
                 prefill_len_max = np.max(prefills, initial=prefills[0])
-                prefill_len_std = np.std(prefills)
+                prefill_len_std = np.std(prefills).item()
             else:
                 prefill_len_sum = 0
                 prefill_len_max = 0
-                prefill_len_std = 0
+                prefill_len_std = 0.0
 
-            future_states[i]['num_decodes'] = num_decodes
-            future_states[i]['decode_len_sum'] = decode_len_sum
-            future_states[i]['decode_len_max'] = decode_len_max
-            future_states[i]['decode_len_std'] = decode_len_std
-            future_states[i]['num_prefills'] = num_prefills
-            future_states[i]['prefill_len_sum'] = prefill_len_sum
-            future_states[i]['prefill_len_max'] = prefill_len_max
-            future_states[i]['prefill_len_std'] = prefill_len_std
+            future_states[i].num_decodes = num_decodes
+            future_states[i].decode_len_sum = decode_len_sum
+            future_states[i].decode_len_max = decode_len_max
+            future_states[i].decode_len_std = decode_len_std
+            future_states[i].num_prefills = num_prefills
+            future_states[i].prefill_len_sum = prefill_len_sum
+            future_states[i].prefill_len_max = prefill_len_max
+            future_states[i].prefill_len_std = prefill_len_std
 
         return future_states, prefill_cycles
 
-    def predict_latencies(self, states, freq_choices) -> list[float]:
+    def predict_latencies(self, states: FreqModMsg,
+                          freq_choices) -> list[float]:
         """
         Predict latency of the upcoming batch for each freq in `freq_choices`.
         """
 
-        num_prefills = states['num_prefills']
-        prefill_len_sum = states['prefill_len_sum']
-        prefill_len_std = states['prefill_len_std']
-        prefill_len_max = states['prefill_len_max']
-        num_decodes = states['num_decodes']
-        decode_len_sum = states['decode_len_sum']
-        decode_len_std = states['decode_len_std']
-        decode_len_max = states['decode_len_max']
-        running_queue_len = states['running_queue_len']
+        num_prefills = states.num_prefills
+        prefill_len_sum = states.prefill_len_sum
+        prefill_len_std = states.prefill_len_std
+        prefill_len_max = states.prefill_len_max
+        num_decodes = states.num_decodes
+        decode_len_sum = states.decode_len_sum
+        decode_len_std = states.decode_len_std
+        decode_len_max = states.decode_len_max
+        running_queue_len = states.num_decodes
 
         # Predict for each freq
         if num_prefills > 0 and num_decodes > 0:
@@ -317,21 +348,21 @@ class _MPNvmlFreqModulatorServer:
         latency_arr += cpu_overhead_s
         return latency_arr.tolist()
 
-    def predict_powers_future_states(self, future_states,
+    def predict_powers_future_states(self, future_states: list[FreqModMsg],
                                      freq_choices) -> list[list[float]]:
         """
         Predict power of the all batches for each freq in `freq_choices`.
         """
         inputs = []
         for states in future_states:
-            num_prefills = states['num_prefills']
-            prefill_len_sum = states['prefill_len_sum']
-            prefill_len_std = states['prefill_len_std']
-            prefill_len_max = states['prefill_len_max']
-            num_decodes = states['num_decodes']
-            decode_len_sum = states['decode_len_sum']
-            decode_len_std = states['decode_len_std']
-            decode_len_max = states['decode_len_max']
+            num_prefills = states.num_prefills
+            prefill_len_sum = states.prefill_len_sum
+            prefill_len_std = states.prefill_len_std
+            prefill_len_max = states.prefill_len_max
+            num_decodes = states.num_decodes
+            decode_len_sum = states.decode_len_sum
+            decode_len_std = states.decode_len_std
+            decode_len_max = states.decode_len_max
             input = np.array([
                 num_prefills, prefill_len_sum, prefill_len_std,
                 prefill_len_max, num_decodes, decode_len_sum, decode_len_std,
@@ -351,5 +382,9 @@ class _MPNvmlFreqModulatorServer:
         output_arr = power_arr.reshape(len(future_states), len(freq_choices))
         return output_arr.tolist()
 
-    def get_cpu_overhead_us(self, running_queue_len: int) -> float:
-        return np.nan
+    @staticmethod
+    def get_cpu_overhead_us(running_queue_len: int) -> float:
+        cpu_overhead_us = (0.0831 * running_queue_len**2 +
+                           76.3407 * running_queue_len + 610.8997)
+        cpu_overhead_us = max(0.0, cpu_overhead_us)
+        return cpu_overhead_us
