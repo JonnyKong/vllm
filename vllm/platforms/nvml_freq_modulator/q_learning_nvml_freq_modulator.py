@@ -10,12 +10,12 @@ import pandas as pd
 from vllm.logger import init_logger
 from vllm.platforms.nvml_power_monitor import PowerReading
 
-from .nvml_freq_modulator import NvmlFreqModulator
+from .nvml_freq_modulator import InProcNvmlFreqModulator
 
 logger = init_logger(__name__)
 
 
-class QLearningNvmlFreqModulator(NvmlFreqModulator):
+class QLearningNvmlFreqModulator(InProcNvmlFreqModulator):
     """
     A GPU frequency modulator using tabular Q-learning to adjust the GPU
     frequency based on the state of the system.

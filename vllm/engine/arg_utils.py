@@ -1110,10 +1110,11 @@ class EngineArgs:
                             action='store_true',
                             default=EngineArgs.enable_freq_mod)
 
-        parser.add_argument('--freq-mod-mode',
-                            type=str,
-                            choices=['rule', 'value-iter', 'q-learn', 'dqn'],
-                            default=EngineArgs.freq_mod_mode)
+        parser.add_argument(
+            '--freq-mod-mode',
+            type=str,
+            choices=['rule', 'value-iter', 'q-learn', 'dqn', 'mp'],
+            default=EngineArgs.freq_mod_mode)
 
         parser.add_argument('--pretrained-rl-model-path',
                             type=str,

@@ -48,7 +48,7 @@ from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.outputs import (PoolingRequestOutput, RequestOutput,
                           RequestOutputFactory)
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
-    NvmlFreqModulator)
+    NvmlFreqModulatorInterface)
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator_factory import (
     nvml_freq_modulator_factory)
 from vllm.platforms.nvml_power_monitor import start_nvml_power_monitor
@@ -427,7 +427,7 @@ class LLMEngine:
                 daemon=True)
             self.power_monitor_process.start()
 
-        self.freq_modulator: Optional[NvmlFreqModulator] = None
+        self.freq_modulator: Optional[NvmlFreqModulatorInterface] = None
         if vllm_config.enable_freq_mod:
             self.freq_modulator = nvml_freq_modulator_factory(
                 vllm_config, self)
@@ -588,6 +588,8 @@ class LLMEngine:
         if self.power_monitor_process:
             self.power_monitor_process.kill()
             self.power_monitor_process.join()
+        if self.freq_modulator:
+            self.freq_modulator.close()
 
     def get_tokenizer_group(
         self,
@@ -1744,6 +1746,24 @@ class LLMEngine:
         num_waiting_tokens_sys = sum(r.first_seq.get_len()
                                      for scheduler in self.scheduler
                                      for r in scheduler.waiting)
+        # TODO: support multiple schedulers
+        running_queue_num_tokens_per_req = [
+            r.first_seq.get_len() for r in self.scheduler[0].running
+        ]
+        wait_queue_num_prefill_tokens_per_req = [
+            r.first_seq.get_len() for r in self.scheduler[0].waiting
+        ]
+        wait_queue_num_processed_tokens_per_req = [
+            r.first_seq.get_num_computed_tokens()
+            for r in self.scheduler[0].waiting
+        ]
+        wait_queue_waiting_time_per_req = [
+            now - r.arrival_time for r in self.scheduler[0].waiting
+        ]
+        wait_queue_waiting_time_per_req = [
+            r.first_seq.get_num_computed_tokens()
+            for r in self.scheduler[0].waiting
+        ]
         scheduler_time = (scheduler_outputs.scheduler_time
                           if scheduler_outputs else 0.0)
         process_model_outputs_time = (
@@ -1978,6 +1998,12 @@ class LLMEngine:
             num_swapped_sys=num_swapped_sys,
             num_waiting_sys=num_waiting_sys,
             num_waiting_tokens_sys=num_waiting_tokens_sys,
+            running_queue_num_tokens_per_req=running_queue_num_tokens_per_req,
+            wait_queue_num_prefill_tokens_per_req=
+            wait_queue_num_prefill_tokens_per_req,
+            wait_queue_num_processed_tokens_per_req=
+            wait_queue_num_processed_tokens_per_req,
+            wait_queue_waiting_time_per_req=wait_queue_waiting_time_per_req,
             #   KV Cache Usage in %
             gpu_cache_usage_sys=gpu_cache_usage_sys,
             cpu_cache_usage_sys=cpu_cache_usage_sys,

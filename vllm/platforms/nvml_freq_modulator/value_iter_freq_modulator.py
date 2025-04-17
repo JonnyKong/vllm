@@ -5,12 +5,12 @@ from typing import List, Optional, Tuple
 
 from vllm.logger import init_logger
 
-from .nvml_freq_modulator import NvmlFreqModulator
+from .nvml_freq_modulator import InProcNvmlFreqModulator
 
 logger = init_logger(__name__)
 
 
-class ValueIterationNvmlFreqModulator(NvmlFreqModulator):
+class ValueIterationNvmlFreqModulator(InProcNvmlFreqModulator):
     """
     A GPU frequency modulator designed solely for collecting training data
     for reinforcement learning. It logs <timestamp, state, action, next_state>

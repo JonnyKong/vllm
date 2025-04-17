@@ -13,7 +13,18 @@ from vllm.platforms.nvml_utils import nvml_set_freq
 logger = init_logger(__name__)
 
 
-class NvmlFreqModulator(ABC):
+class NvmlFreqModulatorInterface(ABC):
+
+    @abstractmethod
+    def step(self, stats: Optional[Stats]) -> None:
+        ...
+
+    @abstractmethod
+    def close(self):
+        pass
+
+
+class InProcNvmlFreqModulator(NvmlFreqModulatorInterface):
     '''
     Base class for a GPU frequency modulator using NVML. Adjusts the GPU
     frequency at specified intervals by invoking the `adjust` method, which
@@ -22,7 +33,7 @@ class NvmlFreqModulator(ABC):
     TODO: adjust each GPU separately.
     '''
 
-    def __init__(self, llm_engine, interval_s: float) -> None:
+    def __init__(self, llm_engine, interval_s: Optional[float] = None) -> None:
         self.llm_engine = llm_engine
         self.interval_s = interval_s
         self.last_adjustment_time = time.perf_counter()
@@ -39,7 +50,8 @@ class NvmlFreqModulator(ABC):
             self.stats_buffer.append(stats)
 
         current_time = time.perf_counter()
-        if current_time - self.last_adjustment_time >= self.interval_s:
+        if self.interval_s and \
+                current_time - self.last_adjustment_time >= self.interval_s:
             freq = self.adjust()
             try:
                 loop = asyncio.get_running_loop()
@@ -102,3 +114,6 @@ class NvmlFreqModulator(ABC):
                 for scheduler in self.llm_engine.scheduler)
             gpu_cache_usage_sys = 1.0 - (num_free_gpu / num_total_gpu)
         return gpu_cache_usage_sys
+
+    def close(self):
+        pass
