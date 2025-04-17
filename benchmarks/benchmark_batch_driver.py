@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
+import ast
 import copy
 import itertools
 import os
+import random
+import re
 import sys
 from pathlib import Path
 from typing import Callable, Optional
 
+import pandas as pd
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
 from benchmark_utils import (get_gpu_name, get_result_root,
@@ -218,6 +222,75 @@ def gen_chunked_prefill_args(tp: int,
     return params
 
 
+def gen_from_trace(
+    tp: int,
+    pp: int,
+    start_sample: int = 0,
+    end_sample: int = 20000,
+    num_freqs: int = 11,
+    trace_dir:
+    str = "/export2/datla/energy_efficient_serving_results/" \
+        "azure_trace_sampling/slightly_underloaded_qps/logs"
+):
+
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
+    params = []
+    csv_files = [
+        f for f in os.listdir(trace_dir)
+        if re.match(r'perf_metric_\d+\.csv', f)
+    ]
+
+    for filename in csv_files:
+        full_path = os.path.join(trace_dir, filename)
+        df = pd.read_csv(full_path)
+
+        count = -1
+        for idx, row in df.iterrows():
+
+            # Convert stringified list to actual list
+            num_computed_tokens = ast.literal_eval(
+                row['num_precomputed_tokens_per_req_iter'])
+            chunk_sizes = ast.literal_eval(row['chunk_size_per_req_iter'])
+
+            if (len(num_computed_tokens) == 0):
+                continue
+
+            count += 1
+
+            if (count < start_sample):
+                continue
+
+            if (count >= end_sample):
+                break
+
+            prefill_lens = []
+            prefill_computed_lens = []
+            decode_lens = []
+
+            for i in range(len(num_computed_tokens)):
+                if chunk_sizes[i] == 1:
+                    decode_lens.append(num_computed_tokens[i])
+                else:
+                    prefill_lens.append(num_computed_tokens[i] +
+                                        chunk_sizes[i])
+                    prefill_computed_lens.append(num_computed_tokens[i])
+
+            params.append(
+                BenchmarkBatchParam(
+                    prefill_input_lens=prefill_lens,
+                    prefill_completed_input_lens=prefill_computed_lens,
+                    decode_input_lens=decode_lens,
+                    log_dir=
+                    "/export2/datla/energy_efficient_serving_results/" \
+                    "azure_trace_sampling/slightly_underloaded_qps_batches/" \
+                    "logs/batch_{count}",
+                    gpu_freq_mhz=random.choice(test_freqs),
+                    min_num_iters=2,
+                    min_seconds=1,
+                ))
+    return params
+
+
 def main(expr_fn: Callable):
     tp = 1
     pp = 1
@@ -226,8 +299,8 @@ def main(expr_fn: Callable):
                  f"-tp {tp} "
                  f"-pp {pp} "
                  "--disable-async-output-proc "
-                 "--max-num-seqs 512 --max-num-batched-tokens 4096 "
-                 "--max-model-len 4096 "
+                 "--max-num-seqs 1024 --max-num-batched-tokens 1024 "
+                 "--max-model-len 65536 "
                  "--collect-detailed-traces worker").split()
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
@@ -236,15 +309,8 @@ def main(expr_fn: Callable):
     # Pass in a list instead of generator so tqdm prints progress
     params = expr_fn(tp=tp, pp=pp)
     latencies = []
+
     uvloop.run(benchmark_batch(vllm_args, params, latencies))
-    for i, param in enumerate(params):
-        print(
-            "(Completed, total, decode_bs): " + \
-            f"({param.prefill_completed_input_lens[0]}, " + \
-            f"{param.prefill_input_lens[0]}, " + \
-            f"{len(param.decode_input_lens)}) " + \
-            f"- Latency: {latencies[i][2]}"
-        )
 
 
 if __name__ == '__main__':
@@ -256,5 +322,6 @@ if __name__ == '__main__':
         'power_profiling_test_linearity_of_hybrid_batches':
         gen_args_test_energy_linearity_of_hybrid_batches,
         'chunked_prefill': gen_chunked_prefill_args,
+        'trace': gen_from_trace,
     }[sys.argv[1]]
     main(expr_fn)
