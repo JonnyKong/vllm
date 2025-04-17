@@ -2,7 +2,7 @@
 import copy
 from dataclasses import dataclass
 from itertools import product
-from multiprocessing import Process, Queue
+from multiprocessing import Process, SimpleQueue
 from pathlib import Path
 from typing import Optional
 
@@ -66,7 +66,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
     ):
         self.llm_engine = llm_engine
 
-        self.q: Queue = get_mp_context().Queue()
+        self.q: SimpleQueue = get_mp_context().SimpleQueue()
         self.server = _MPNvmlFreqModulatorServer(freq_choices, self.q)
         self.server_process: Process = get_mp_context().Process(
             target=self.server.run)
@@ -99,7 +99,7 @@ class _MPNvmlFreqModulatorServer:
     def __init__(
         self,
         freq_choices: list[int],
-        q: Queue,
+        q: SimpleQueue,
         future_window: int = 2,
         tbt_sla: float = 0.25,
         ttft_sla: float = 1.0,
@@ -412,7 +412,7 @@ class _MPNvmlFreqModulatorServer:
 
 
 if __name__ == '__main__':
-    q: Queue = Queue()
+    q: SimpleQueue = SimpleQueue()
     s = _MPNvmlFreqModulatorServer(
         freq_choices=[
             540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
