@@ -19,6 +19,10 @@ class NvmlFreqModulatorInterface(ABC):
     def step(self, stats: Optional[Stats]) -> None:
         ...
 
+    @abstractmethod
+    def close(self):
+        pass
+
 
 class InProcNvmlFreqModulator(NvmlFreqModulatorInterface):
     '''
@@ -110,3 +114,6 @@ class InProcNvmlFreqModulator(NvmlFreqModulatorInterface):
                 for scheduler in self.llm_engine.scheduler)
             gpu_cache_usage_sys = 1.0 - (num_free_gpu / num_total_gpu)
         return gpu_cache_usage_sys
+
+    def close(self):
+        pass

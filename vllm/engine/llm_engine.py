@@ -588,6 +588,8 @@ class LLMEngine:
         if self.power_monitor_process:
             self.power_monitor_process.kill()
             self.power_monitor_process.join()
+        if self.freq_modulator:
+            self.freq_modulator.close()
 
     def get_tokenizer_group(
         self,
