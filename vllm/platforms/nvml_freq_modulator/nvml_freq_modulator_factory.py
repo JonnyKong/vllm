@@ -31,7 +31,17 @@ def nvml_freq_modulator_factory(config: VllmConfig,
     elif config.freq_mod_mode == 'q-learn':
         assert config.log_dir
         a40_freq_choices = [
-            540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
+            210,
+            360,
+            510,
+            675,
+            825,
+            975,
+            1125,
+            1275,
+            1440,
+            1590,
+            1740,
         ]
         return QTableFreqModulator(
             llm_engine,
@@ -47,7 +57,17 @@ def nvml_freq_modulator_factory(config: VllmConfig,
     elif config.freq_mod_mode == 'dqn':
         assert config.log_dir
         a40_freq_choices = [
-            540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
+            210,
+            360,
+            510,
+            675,
+            825,
+            975,
+            1125,
+            1275,
+            1440,
+            1590,
+            1740,
         ]
         return DQNNvmlFreqModulator(
             llm_engine,
@@ -61,7 +81,17 @@ def nvml_freq_modulator_factory(config: VllmConfig,
             tbt_slo=0.250)
     elif config.freq_mod_mode == 'mp':
         a40_freq_choices = [
-            540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
+            210,
+            360,
+            510,
+            675,
+            825,
+            975,
+            1125,
+            1275,
+            1440,
+            1590,
+            1740,
         ]
         return MPNvmlFreqModulatorClient(
             llm_engine,

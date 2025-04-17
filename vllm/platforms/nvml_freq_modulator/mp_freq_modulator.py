@@ -14,6 +14,7 @@ from vllm.engine.metrics_types import Stats
 from vllm.logger import init_logger
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
     NvmlFreqModulatorInterface)
+from vllm.platforms.nvml_utils import nvml_set_freq
 from vllm.utils import get_mp_context
 
 logger = init_logger(__name__)
@@ -149,9 +150,12 @@ class _MPNvmlFreqModulatorServer:
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
-            selected_freq = self._get_next_freq_dp(freq_mod_msg, future_states,
-                                                   prefill_cycles)
-            logger.info("Selected freq: %d", selected_freq)
+            selected_freq_id = self._get_next_freq_dp(freq_mod_msg,
+                                                      future_states,
+                                                      prefill_cycles)
+            selected_freq = self.freq_choices[selected_freq_id]
+
+            nvml_set_freq(selected_freq)
 
     def _get_next_freq_dp(self, freq_mod_msg: FreqModMsg,
                           future_states: list[FutureState], prefill_cycles):
