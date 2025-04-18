@@ -288,7 +288,7 @@ def gen_from_trace(
                     log_dir=
                     "/export2/datla/energy_efficient_serving_results/" \
                     "azure_trace_sampling/slightly_underloaded_qps_batches/" \
-                    "logs/batch_{count}",
+                    f"logs/batch_{count}",
                     gpu_freq_mhz=random.choice(test_freqs),
                     min_num_iters=2,
                     min_seconds=1,
