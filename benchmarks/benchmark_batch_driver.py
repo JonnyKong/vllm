@@ -267,13 +267,18 @@ def gen_from_trace(
             prefill_computed_lens = []
             decode_lens = []
 
-            for i in range(len(num_computed_tokens)):
-                if chunk_sizes[i] == 1:
-                    decode_lens.append(num_computed_tokens[i])
-                else:
-                    prefill_lens.append(num_computed_tokens[i] +
-                                        chunk_sizes[i])
-                    prefill_computed_lens.append(num_computed_tokens[i])
+            start_decode_ind = 0
+
+            for i, size in enumerate(chunk_sizes):
+                if size > 1:
+                    start_decode_ind = i + 1
+
+            for i in range(start_decode_ind):
+                prefill_lens.append(num_computed_tokens[i] + chunk_sizes[i])
+                prefill_computed_lens.append(num_computed_tokens[i])
+
+            for i in range(start_decode_ind, len(chunk_sizes)):
+                decode_lens.append(num_computed_tokens[i] + chunk_sizes[i])
 
             params.append(
                 BenchmarkBatchParam(
