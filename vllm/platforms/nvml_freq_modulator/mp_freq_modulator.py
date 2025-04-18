@@ -315,12 +315,12 @@ class _MPNvmlFreqModulatorServer:
                 ))
 
             # Update decode statistics
-            decode_len_max = max(decode_len_max, prefill_len_max)
+            decode_len_max = max(decode_len_max, prefill_len_max) + 1
             decode_len_std = np.sqrt((num_decodes * decode_len_std**2 +
                                       num_prefills * prefill_len_std**2) /
                                      (num_decodes + num_prefills + 1e-6))
             # all requests progress by 1 and prefills are added to decodes
-            decode_len_sum += num_decodes + prefill_len_sum
+            decode_len_sum += num_decodes + prefill_len_sum + num_prefills
             # last batches prefills are added to decodes
             num_decodes += num_prefills
 
