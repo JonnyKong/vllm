@@ -3300,7 +3300,7 @@ class VllmConfig:
     additional_config: SupportsHash = field(default=None,
                                             init=True)  # type: ignore
     instance_id: str = ""
-    log_dir: Optional[str] = None
+    log_dir: str = "./logs"
     enable_freq_mod: bool = False
     freq_mod_mode: Optional[str] = None
     pretrained_rl_model_path: Optional[str] = None

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import copy
+import time
 from dataclasses import dataclass
 from itertools import product
 from multiprocessing import Process, SimpleQueue
@@ -14,7 +15,7 @@ from vllm.engine.metrics_types import Stats
 from vllm.logger import init_logger
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
     NvmlFreqModulatorInterface)
-from vllm.platforms.nvml_utils import nvml_set_freq
+from vllm.platforms.nvml_utils import CSVWriter, nvml_set_freq
 from vllm.utils import get_mp_context
 
 logger = init_logger(__name__)
@@ -64,11 +65,14 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
         self,
         llm_engine,
         freq_choices: list[int],
+        log_dir: Path,
     ):
         self.llm_engine = llm_engine
 
         self.q: SimpleQueue = get_mp_context().SimpleQueue()
-        self.server = _MPNvmlFreqModulatorServer(freq_choices, self.q)
+        self.server = _MPNvmlFreqModulatorServer(freq_choices,
+                                                 self.q,
+                                                 log_dir=log_dir)
         self.server_process: Process = get_mp_context().Process(
             target=self.server.run)
         self.server_process.start()
@@ -81,7 +85,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
             self.q.put(msg_encoded)
 
     def close(self):
-        self.server_process.terminate()
+        self.q.put(None)
         self.server_process.join()
         logger.info('_MPNvmlFreqModulatorServer process terminated.')
 
@@ -101,12 +105,14 @@ class _MPNvmlFreqModulatorServer:
         self,
         freq_choices: list[int],
         q: SimpleQueue,
-        future_window: int = 2,
+        log_dir: Path,
+        future_window: int = 4,
         tbt_sla: float = 0.25,
         ttft_sla: float = 1.0,
     ):
         self.freq_choices = freq_choices
         self.q = q
+        self.log_dir = log_dir
 
         self.future_windows = future_window
         self.tbt_sla = tbt_sla
@@ -137,10 +143,18 @@ class _MPNvmlFreqModulatorServer:
         # Load models here rather than in __init__() so that we don't pass the
         # loaded models across processes
         self._load_models()
+
+        csv_writer = CSVWriter(
+            col_names=['freq_mod_start', 'freq_mod_end', 'target_freq'],
+            filename=self.log_dir / 'freq_mod_log.csv')
+
         while True:
             msg = self.q.get()
+            if msg is None:
+                break
             freq_mod_msg: FreqModMsg = msgspec.msgpack.decode(msg,
                                                               type=FreqModMsg)
+            logger.info('freq_mod_msg: %s', freq_mod_msg)
 
             future_states, prefill_cycles = self.get_future_states(
                 freq_mod_msg, self.future_windows)
@@ -155,7 +169,12 @@ class _MPNvmlFreqModulatorServer:
                                                       prefill_cycles)
             selected_freq = self.freq_choices[selected_freq_id]
 
+            freq_mod_start = time.perf_counter()
             nvml_set_freq(selected_freq)
+            freq_mod_end = time.perf_counter()
+            csv_writer.add_row([freq_mod_start, freq_mod_end, selected_freq])
+
+        csv_writer.close()
 
     def _get_next_freq_dp(self, freq_mod_msg: FreqModMsg,
                           future_states: list[FutureState], prefill_cycles):
@@ -417,12 +436,21 @@ class _MPNvmlFreqModulatorServer:
 
 if __name__ == '__main__':
     q: SimpleQueue = SimpleQueue()
-    s = _MPNvmlFreqModulatorServer(
-        freq_choices=[
-            540, 660, 780, 900, 1020, 1140, 1260, 1380, 1500, 1620, 1740
-        ],
-        q=q,
-    )
+    s = _MPNvmlFreqModulatorServer(freq_choices=[
+        210,
+        360,
+        510,
+        675,
+        825,
+        975,
+        1125,
+        1275,
+        1440,
+        1590,
+        1740,
+    ],
+                                   q=q,
+                                   log_dir=Path('./logs'))
     msg = FreqModMsg(
         running_queue_num_tokens_per_req=[1074],
         wait_queue_num_prefill_tokens_per_req=[],

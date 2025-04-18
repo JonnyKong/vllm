@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 import contextlib
+import csv
 import os
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 import pynvml
 
@@ -97,3 +99,26 @@ def timeit(name='Unnamed code block'):
         end_time = time.perf_counter()
         elapsed_time = end_time - start_time
         logger.info('[%s] execution time: %f', name, elapsed_time)
+
+
+class CSVWriter:
+
+    def __init__(self, col_names: list[str], filename: Path):
+        self.filename = str(filename)
+        self.col_names = col_names
+        self.header_written = False  # Track if the header has been written
+
+        # ruff: noqa: SIM115
+        self.file = open(self.filename, 'a', newline='', encoding='utf-8')
+        # ruff: enable
+        self.writer = csv.writer(self.file)
+
+    def add_row(self, row: list):
+        assert len(row) == len(self.col_names)
+        if not self.header_written:
+            self.writer.writerow(self.col_names)
+            self.header_written = True
+        self.writer.writerow(row)
+
+    def close(self):
+        self.file.close()
