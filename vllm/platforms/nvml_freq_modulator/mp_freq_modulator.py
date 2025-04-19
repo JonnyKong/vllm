@@ -156,7 +156,7 @@ class _MPNvmlFreqModulatorServer:
                 break
             freq_mod_msg: FreqModMsg = msgspec.msgpack.decode(msg,
                                                               type=FreqModMsg)
-            logger.info('freq_mod_msg: %s', freq_mod_msg)
+            logger.debug('freq_mod_msg: %s', freq_mod_msg)
 
             future_states, prefill_cycles = self.get_future_states(
                 freq_mod_msg, self.future_windows)
