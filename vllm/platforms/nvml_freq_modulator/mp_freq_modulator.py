@@ -28,6 +28,7 @@ class FreqModMsg(msgspec.Struct):
     """
     Msg from client to server.
     """
+    now: float
     running_queue_num_tokens_per_req: list[int]
     wait_queue_num_prefill_tokens_per_req: list[int]
     wait_queue_num_processed_tokens_per_req: list[int]
@@ -92,6 +93,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
     @staticmethod
     def build_msg(stats: Stats) -> FreqModMsg:
         return FreqModMsg(
+            stats.now,
             stats.running_queue_num_tokens_per_req,
             stats.wait_queue_num_prefill_tokens_per_req,
             stats.wait_queue_num_processed_tokens_per_req,
@@ -144,39 +146,42 @@ class _MPNvmlFreqModulatorServer:
         # loaded models across processes
         self._load_models()
 
+        # Column `now` used as key column to join with `perf_metrics.csv`
         csv_writer = CSVWriter(col_names=[
-            'freq_mod_start', 'freq_mod_end', 'target_freq', 'batch_lat',
-            'cpu_overhead'
+            'now', 'freq_mod_start', 'freq_mod_end', 'target_freq',
+            'batch_lat', 'cpu_overhead'
         ],
                                filename=self.log_dir / 'freq_mod_log.csv')
 
         while True:
-            msg = self.q.get()
-            if msg is None:
+            msg_encoded = self.q.get()
+            if msg_encoded is None:
                 break
-            freq_mod_msg: FreqModMsg = msgspec.msgpack.decode(msg,
-                                                              type=FreqModMsg)
-            logger.debug('freq_mod_msg: %s', freq_mod_msg)
+            msg: FreqModMsg = msgspec.msgpack.decode(msg_encoded,
+                                                     type=FreqModMsg)
+            logger.debug('freq_mod_msg: %s', msg)
 
             future_states, prefill_cycles = self.get_future_states(
-                freq_mod_msg, self.future_windows)
+                msg, self.future_windows)
 
-            num_waiting_reqs = len(
-                freq_mod_msg.wait_queue_num_prefill_tokens_per_req)
+            num_waiting_reqs = len(msg.wait_queue_num_prefill_tokens_per_req)
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
             selected_freq_id, pred_batch_lat, pred_overhead = (
-                self._get_next_freq_dp(freq_mod_msg, future_states,
-                                       prefill_cycles))
+                self._get_next_freq_dp(msg, future_states, prefill_cycles))
             selected_freq = self.freq_choices[selected_freq_id]
 
             freq_mod_start = time.perf_counter()
             nvml_set_freq(selected_freq)
             freq_mod_end = time.perf_counter()
             csv_writer.add_row([
-                freq_mod_start, freq_mod_end, selected_freq, pred_batch_lat,
-                pred_overhead
+                msg.now,
+                freq_mod_start,
+                freq_mod_end,
+                selected_freq,
+                pred_batch_lat,
+                pred_overhead,
             ])
 
         csv_writer.close()
@@ -439,8 +444,8 @@ class _MPNvmlFreqModulatorServer:
 
     @staticmethod
     def get_cpu_overhead_us(running_queue_len: int) -> float:
-        cpu_overhead_us = (0.0831 * running_queue_len**2 +
-                           76.3407 * running_queue_len + 610.8997)
+        cpu_overhead_us = (-0.0528 * running_queue_len**2 +
+                           150.7061 * running_queue_len - 2980.013)
         cpu_overhead_us = max(0.0, cpu_overhead_us)
         return cpu_overhead_us
 
