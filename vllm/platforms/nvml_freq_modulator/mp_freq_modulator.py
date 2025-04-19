@@ -144,9 +144,11 @@ class _MPNvmlFreqModulatorServer:
         # loaded models across processes
         self._load_models()
 
-        csv_writer = CSVWriter(
-            col_names=['freq_mod_start', 'freq_mod_end', 'target_freq'],
-            filename=self.log_dir / 'freq_mod_log.csv')
+        csv_writer = CSVWriter(col_names=[
+            'freq_mod_start', 'freq_mod_end', 'target_freq', 'batch_lat',
+            'cpu_overhead'
+        ],
+                               filename=self.log_dir / 'freq_mod_log.csv')
 
         while True:
             msg = self.q.get()
@@ -164,15 +166,18 @@ class _MPNvmlFreqModulatorServer:
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
-            selected_freq_id = self._get_next_freq_dp(freq_mod_msg,
-                                                      future_states,
-                                                      prefill_cycles)
+            selected_freq_id, pred_batch_lat, pred_overhead = (
+                self._get_next_freq_dp(freq_mod_msg, future_states,
+                                       prefill_cycles))
             selected_freq = self.freq_choices[selected_freq_id]
 
             freq_mod_start = time.perf_counter()
             nvml_set_freq(selected_freq)
             freq_mod_end = time.perf_counter()
-            csv_writer.add_row([freq_mod_start, freq_mod_end, selected_freq])
+            csv_writer.add_row([
+                freq_mod_start, freq_mod_end, selected_freq, pred_batch_lat,
+                pred_overhead
+            ])
 
         csv_writer.close()
 
@@ -262,7 +267,13 @@ class _MPNvmlFreqModulatorServer:
                 break
 
         selected_freq = freq_choices_desc[selected_freq_ids[0]]
-        return self.freq_choices.index(selected_freq)
+        predicted_overhead = self.get_cpu_overhead_us(
+            future_states[0].num_decodes) / 1e6
+        predicted_batch_lat = lat_mat_list[0][
+            selected_freq_ids[0]] - predicted_overhead
+
+        return self.freq_choices.index(
+            selected_freq), predicted_batch_lat, predicted_overhead
 
     def get_future_states(self, msg: FreqModMsg,
                           future_window: int) -> tuple[list, list]:
