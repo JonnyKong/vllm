@@ -5,7 +5,9 @@ import numpy as np
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_batch_driver import gen_power_profiling_args
+from latency_and_power_model_sampler import get_cdf_data
 from lightgbm import LGBMRegressor
+from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
@@ -29,14 +31,16 @@ def main(batch_type: str):
     Y_pred = np.exp(Y_pred_log)
 
     # Compute absolute relative error
-    abs_rel_error = np.abs((Y_test - Y_pred) / Y_test)
-    rel_error = (Y_test - Y_pred) / Y_test
+    abs_rel_error = np.abs((Y_pred - Y_test) / Y_test)
+    rel_error = (Y_pred - Y_test) / Y_test
+    error = Y_pred - Y_test
 
     # Store errors in a pandas DataFrame and analyze grouped by frequency
     df_errors = pd.DataFrame({
         'Frequency': freqs_test,
         'Absolute Relative Error': abs_rel_error,
-        'Relative Error': rel_error
+        'Relative Error': rel_error,
+        'Error': error,
     })
 
     grouped_errors = df_errors.groupby(
@@ -58,6 +62,23 @@ def main(batch_type: str):
               f"Relative Error Std: {rel_error_std:.4f}")
     print(
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
+    plot_pred_error_cdf(df_errors, batch_type)
+
+
+def plot_pred_error_cdf(df_errors: pd.DataFrame, batch_type: str):
+    error_names = ['Absolute Relative Error', 'Relative Error', 'Error']
+    fig, axs = plt.subplots(1, len(error_names), figsize=(15, 5))
+
+    for ax, error_name in zip(axs, error_names):
+        x, y = get_cdf_data(df_errors[error_name])
+        ax.plot(x, y, label=error_name)
+        ax.set_title(error_name)
+        ax.set_ylabel('CDF')
+        ax.set_xlabel('Error (positive means over-pred)')
+        ax.grid()
+
+    fig.tight_layout()
+    plt.savefig(f'pred_error_cdf_{batch_type}.pdf')
 
 
 def load_data(batch_type: str):
