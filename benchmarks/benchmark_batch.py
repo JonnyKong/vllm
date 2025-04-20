@@ -298,7 +298,7 @@ if __name__ == '__main__':
     parser = AsyncEngineArgs.add_cli_args(parser)
     vllm_args = ("--model meta-llama/Llama-3.1-8B-Instruct "
                  "-tp 1 -pp 1 "
-                 "--max-num-seqs 1024 --max-num-batched-tokens 8192 "
+                 "--max-num-seqs 1024 --max-num-batched-tokens 1024 "
                  "--disable-async-output-proc "
                  "--collect-detailed-traces worker").split()
     vllm_args = parser.parse_args(vllm_args)
@@ -309,9 +309,9 @@ if __name__ == '__main__':
         log_dir='./logs',
         gpu_freq_mhz=nvml_get_available_freq()[-1],
         gpu_power_meas_interval=0.001,
-        delay_time_min_s=1.0,
-        delay_time_max_s=1.0,
-        min_num_iters=100,
+        delay_time_min_s=0.0,
+        delay_time_max_s=0.0,
+        min_num_iters=10,
         min_seconds=0,
     )
 
