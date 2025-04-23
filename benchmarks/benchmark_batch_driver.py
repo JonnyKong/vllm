@@ -296,6 +296,57 @@ def gen_from_trace(
     return params
 
 
+def gen_compare_w_wo_precompute(
+    tp: int,
+    pp: int,
+    num_freqs: int = 11,
+):
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
+    params = []
+
+    prefill_input_lens = [32, 22, 288]
+    decode_input_lens = [
+        808, 637, 788, 585, 784, 861, 891, 489, 485, 845, 474, 487, 468, 449,
+        728, 531, 419, 414, 805, 430, 958, 640, 516, 574, 443, 404, 371, 406,
+        533, 360, 499, 944, 383, 355, 378, 407, 339, 658, 319, 326, 327, 345,
+        315, 321, 315, 312, 816, 343, 311, 292, 321, 291, 1129, 397, 329, 522,
+        346, 302, 299, 279, 371, 315, 428, 276, 732, 603, 264, 323, 417, 339,
+        356, 477, 568, 254, 264, 933, 252, 276, 320, 301, 247, 260, 250, 1039,
+        461, 241, 369, 253, 237, 345, 215, 213, 288, 218, 213, 754, 212, 461,
+        196, 214, 208, 967, 353, 213, 214, 205, 207, 193, 195, 431, 207, 315,
+        194, 188, 195, 173, 185, 187, 174, 182, 186, 185, 164, 244, 203, 219,
+        169, 498, 176, 183, 371, 156, 160, 274, 301, 151, 148, 194, 144, 537,
+        727, 143, 193, 633, 236, 475, 131, 148, 133, 191, 131, 1120, 131, 120,
+        113, 128, 131, 403, 116, 112, 134, 247, 341, 94, 98, 164, 94, 90, 470,
+        120, 867, 882, 924, 98, 206, 87, 354, 188, 856, 94, 87, 504, 79, 167,
+        63, 74, 87, 302, 407, 66, 65, 1035, 422, 141, 63, 661, 551, 62, 78,
+        681, 52, 50, 138, 838, 50, 193, 47, 57, 60, 1086, 51, 50, 650, 69, 47,
+        77, 60, 271, 44, 45, 45, 733, 115, 40, 398, 374, 120, 209, 742, 68,
+        729, 54, 31, 55, 770, 50, 36, 24, 40, 30, 23, 617, 567, 26, 57, 120,
+        65, 55, 37, 46, 572, 332, 385, 14, 47, 818, 423, 73, 45, 169, 17, 163,
+        110, 624, 16
+    ]
+    prefill_completed_input_lens = [0, 0, 121]
+
+    for freq in test_freqs:
+        p_w = BenchmarkBatchParam(
+            prefill_input_lens=prefill_input_lens,
+            prefill_completed_input_lens=prefill_completed_input_lens,
+            decode_input_lens=decode_input_lens,
+            gpu_freq_mhz=freq,
+            min_num_iters=10,
+            min_seconds=1,
+            log_dir=f'./logs/freq{freq}_w_precompute',
+        )
+        p_wo = copy.deepcopy(p_w)
+        p_wo.prefill_completed_input_lens = [
+            0 for _ in range(len(p_wo.prefill_input_lens))
+        ]
+        p_wo.log_dir = f'./logs/freq{freq}_wo_precompute'
+        params.extend([p_w, p_wo])
+    return params
+
+
 def main(expr_fn: Callable):
     tp = 1
     pp = 1
@@ -328,5 +379,6 @@ if __name__ == '__main__':
         gen_args_test_energy_linearity_of_hybrid_batches,
         'chunked_prefill': gen_chunked_prefill_args,
         'trace': gen_from_trace,
+        'compare_w_wo_precompute': gen_compare_w_wo_precompute,
     }[sys.argv[1]]
     main(expr_fn)
