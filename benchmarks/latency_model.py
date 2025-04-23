@@ -67,15 +67,28 @@ def main(batch_type: str):
 
 def plot_pred_error_cdf(df_errors: pd.DataFrame, batch_type: str):
     error_names = ['Absolute Relative Error', 'Relative Error', 'Error']
-    fig, axs = plt.subplots(1, len(error_names), figsize=(15, 5))
+    fig, axs = plt.subplots(2, len(error_names), figsize=(15, 10))
 
-    for ax, error_name in zip(axs, error_names):
+    # Average over all freqs
+    for ax, error_name in zip(axs[0], error_names):
         x, y = get_cdf_data(df_errors[error_name])
         ax.plot(x, y, label=error_name)
-        ax.set_title(error_name)
+        ax.set_title(f'{error_name}, mean: {df_errors[error_name].mean():.4f}')
         ax.set_ylabel('CDF')
         ax.set_xlabel('Error (positive means over-pred)')
         ax.grid()
+
+    # For each freq
+    for ax, error_name in zip(axs[1], error_names):
+        for freq in [825, 975, 1125, 1275, 1440, 1590, 1740]:
+            df_errors_ = df_errors[df_errors['Frequency'] == freq]
+            x, y = get_cdf_data(df_errors_[error_name])
+            ax.plot(x, y, label=str(freq))
+        ax.set_title(f'{error_name}, mean: {df_errors[error_name].mean():.4f}')
+        ax.set_ylabel('CDF')
+        ax.set_xlabel('Error (positive means over-pred)')
+        ax.grid()
+        ax.legend()
 
     fig.tight_layout()
     plt.savefig(f'pred_error_cdf_{batch_type}.pdf')
