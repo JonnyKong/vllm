@@ -13,14 +13,14 @@ from benchmark_batch_driver import gen_power_profiling_args
 from latency_and_power_model_sampler import get_cdf_data
 from lightgbm import LGBMRegressor
 from matplotlib import pyplot as plt
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 
 class MLPRegressor(nn.Module):
 
-    def __init__(self, input_dim, lr=1e-3, epochs=2500, batch_size=32):
+    def __init__(self, input_dim, lr=1e-3, epochs=1000, batch_size=32):
         super().__init__()
         layers = []
         last_dim = input_dim
@@ -97,13 +97,18 @@ class MLPRegressor(nn.Module):
         self.load_state_dict(torch.load(path))
 
 
-def main(batch_type: str, model_type: str, freq_to_keep: Optional[int] = None):
+def main(batch_type: str,
+         model_type: str,
+         freq_to_keep: Optional[int] = None,
+         enable_grid_search: bool = False):
     assert model_type in ['gdbt', 'mlp']
     assert batch_type in ['prefill-only', 'decode-only', 'hybrid']
 
     model_name = f'latency_model_{batch_type}_{model_type}'
     if freq_to_keep:
         model_name += f'_{freq_to_keep}only'
+    if enable_grid_search:
+        model_name += '_grid-search'
 
     X, Y, freqs = load_data(batch_type, freq_to_keep)
     print(f"Loaded {len(X)} samples.")
@@ -113,7 +118,21 @@ def main(batch_type: str, model_type: str, freq_to_keep: Optional[int] = None):
 
     if model_type == 'gdbt':
         model = LGBMRegressor()
-        model.fit(X_train, Y_train_log)
+        if enable_grid_search:
+            param_grid = {
+                'num_leaves': [31, 50, 100],
+                'learning_rate': [0.1, 0.01],
+                'n_estimators': [100, 400, 1600, 6400],
+            }
+            grid_search = GridSearchCV(model,
+                                       param_grid,
+                                       cv=3,
+                                       scoring='neg_mean_squared_error')
+            grid_search.fit(X_train, Y_train_log)
+            model = grid_search.best_estimator_
+            print('best params: ', grid_search.best_params_)
+        else:
+            model.fit(X_train, Y_train_log)
         model.booster_.save_model(Path('latency_model') / f'{model_name}.txt')
     else:
         model = MLPRegressor(input_dim=len(X_train[0]))
@@ -121,42 +140,35 @@ def main(batch_type: str, model_type: str, freq_to_keep: Optional[int] = None):
                   Path('latency_model') / f'{model_name}_loss_curve.pdf')
         model.save_model(Path('latency_model') / f'{model_name}.pt')
 
-    # Predict on test set
-    Y_pred_log = model.predict(X_test)
-    Y_pred = np.exp(Y_pred_log)
+    # Predict on both training and testing set
+    df_errors = pd.DataFrame()
+    for split in ['train', 'test']:
+        if split == 'train':
+            X, Y, freqs = X_train, Y_train, freqs_train
+        else:
+            X, Y, freqs = X_test, Y_test, freqs_test
+        print(f'split={split}, shape={X.shape}')
 
-    # Compute absolute relative error
-    abs_rel_error = np.abs((Y_pred - Y_test) / Y_test)
-    rel_error = (Y_pred - Y_test) / Y_test
-    error = Y_pred - Y_test
+        Y_pred_log = model.predict(X)
+        Y_pred = np.exp(Y_pred_log)
 
-    # Store errors in a pandas DataFrame and analyze grouped by frequency
-    df_errors = pd.DataFrame({
-        'Frequency': freqs_test,
-        'Absolute Relative Error': abs_rel_error,
-        'Relative Error': rel_error,
-        'Error': error,
-    })
+        # Compute absolute relative error
+        abs_rel_error = np.abs((Y_pred - Y) / Y)
+        rel_error = (Y_pred - Y) / Y
+        error = Y_pred - Y
 
-    grouped_errors = df_errors.groupby(
-        'Frequency')['Absolute Relative Error'].mean()
-    grouped_relative_errors_mean = df_errors.groupby(
-        'Frequency')['Relative Error'].mean()
-    grouped_relative_erros_std = df_errors.groupby(
-        'Frequency')['Relative Error'].std()
-    sample_counts = df_errors.groupby('Frequency').size()
+        # Store errors in a pandas DataFrame and analyze grouped by frequency
+        df_errors = pd.concat([
+            df_errors,
+            pd.DataFrame({
+                'Frequency': freqs,
+                'Absolute Relative Error': abs_rel_error,
+                'Relative Error': rel_error,
+                'Error': error,
+                'Split': split,
+            })
+        ])
 
-    for freq, mean_error in grouped_errors.items():
-        count = sample_counts[freq]
-        rel_error_mean = grouped_relative_errors_mean[freq]
-        rel_error_std = grouped_relative_erros_std[freq]
-        print(f"Frequency {freq:.2f} "
-              f"MHz (Samples: {count}) "
-              f"MAE: {mean_error:.4f}, "
-              f"Relative Error Mean: {rel_error_mean:.4f}, "
-              f"Relative Error Std: {rel_error_std:.4f}")
-    print(
-        f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
     plot_pred_error_cdf(df_errors,
                         Path('latency_model') / f'loss_cdf_{model_name}.pdf')
 
@@ -167,17 +179,21 @@ def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
 
     # Average over all freqs
     for ax, error_name in zip(axs[0], error_names):
-        x, y = get_cdf_data(df_errors[error_name])
-        ax.plot(x, y, label=error_name)
-        ax.set_title(f'{error_name}, mean: {df_errors[error_name].mean():.4f}')
+        for split in ['train', 'test']:
+            df = df_errors[df_errors['Split'] == split]
+            x, y = get_cdf_data(df[error_name])
+            ax.plot(x, y, label=split)
+        ax.set_title(f'{error_name}')
         ax.set_ylabel('CDF')
         ax.set_xlabel('Error (positive means over-pred)')
+        ax.legend()
         ax.grid()
 
-    # For each freq
+    # For each freq on test set
     for ax, error_name in zip(axs[1], error_names):
         for freq in [825, 975, 1125, 1275, 1440, 1590, 1740]:
-            df_errors_ = df_errors[df_errors['Frequency'] == freq]
+            df_errors_ = df_errors[(df_errors['Split'] == 'test')
+                                   & (df_errors['Frequency'] == freq)]
             x, y = get_cdf_data(df_errors_[error_name])
             ax.plot(x, y, label=str(freq))
         ax.set_title(f'{error_name}, mean: {df_errors[error_name].mean():.4f}')
@@ -265,7 +281,6 @@ def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
 if __name__ == '__main__':
     # for batch_type in ['prefill-only', 'decode-only', 'hybrid']:
     for batch_type in ['hybrid']:
-        main(batch_type, 'mlp')
-        main(batch_type, 'gdbt')
-        main(batch_type, 'mlp', 1125)
-        main(batch_type, 'gdbt', 1125)
+        for enable_grid_search in [False, True]:
+            main(batch_type, 'gdbt', enable_grid_search=enable_grid_search)
+        # main(batch_type, 'mlp')
