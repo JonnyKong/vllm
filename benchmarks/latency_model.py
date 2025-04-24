@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import time
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -96,11 +97,15 @@ class MLPRegressor(nn.Module):
         self.load_state_dict(torch.load(path))
 
 
-def main(batch_type: str, model_type: str):
+def main(batch_type: str, model_type: str, freq_to_keep: Optional[int] = None):
     assert model_type in ['gdbt', 'mlp']
     assert batch_type in ['prefill-only', 'decode-only', 'hybrid']
 
-    X, Y, freqs = load_data(batch_type)
+    model_name = f'latency_model_{batch_type}_{model_type}'
+    if freq_to_keep:
+        model_name += f'_{freq_to_keep}only'
+
+    X, Y, freqs = load_data(batch_type, freq_to_keep)
     print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
@@ -109,14 +114,12 @@ def main(batch_type: str, model_type: str):
     if model_type == 'gdbt':
         model = LGBMRegressor()
         model.fit(X_train, Y_train_log)
-        model.booster_.save_model(
-            Path('latency_model') / f'latency_model_{batch_type}.txt')
+        model.booster_.save_model(Path('latency_model') / f'{model_name}.txt')
     else:
         model = MLPRegressor(input_dim=len(X_train[0]))
         model.fit(X_train, Y_train_log,
-                  Path('latency_model') / f'mlp_loss_curve_{batch_type}')
-        model.save_model(
-            Path('latency_model') / f'latency_model_{batch_type}.pt')
+                  Path('latency_model') / f'{model_name}_loss_curve.pdf')
+        model.save_model(Path('latency_model') / f'{model_name}.pt')
 
     # Predict on test set
     Y_pred_log = model.predict(X_test)
@@ -154,9 +157,8 @@ def main(batch_type: str, model_type: str):
               f"Relative Error Std: {rel_error_std:.4f}")
     print(
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
-    plot_pred_error_cdf(
-        df_errors,
-        Path('latency_model') / f'loss_cdf_{batch_type}_{model_type}.pdf')
+    plot_pred_error_cdf(df_errors,
+                        Path('latency_model') / f'loss_cdf_{model_name}.pdf')
 
 
 def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
@@ -188,7 +190,7 @@ def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
     plt.savefig(output_path)
 
 
-def load_data(batch_type: str):
+def load_data(batch_type: str, freq_to_keep: Optional[int]):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
@@ -209,6 +211,9 @@ def load_data(batch_type: str):
             df_perf = pd.read_csv(perf_path)
             latency = (df_perf['pp_rank_0_end'] -
                        df_perf['pp_rank_0_start']).mean()
+
+            if freq_to_keep and feat[0] != freq_to_keep:
+                continue
 
             if batch_type == 'hybrid':
                 X.append(feat[:])
@@ -258,6 +263,9 @@ def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    for batch_type in ['prefill-only', 'decode-only', 'hybrid']:
+    # for batch_type in ['prefill-only', 'decode-only', 'hybrid']:
+    for batch_type in ['hybrid']:
         main(batch_type, 'mlp')
         main(batch_type, 'gdbt')
+        main(batch_type, 'mlp', 1125)
+        main(batch_type, 'gdbt', 1125)
