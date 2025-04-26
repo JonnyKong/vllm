@@ -51,6 +51,7 @@ class Stats:
     num_generation_tokens_iter: int
     num_precomputed_tokens_per_req_iter: List[int]
     chunk_size_per_req_iter: List[int]
+    chunk_size_per_req_iter_request_ids: List[int]
     num_tokens_iter: int
     batch_size_prompt_iter: int
     batch_size_generation_iter: int
