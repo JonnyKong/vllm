@@ -444,8 +444,8 @@ class _MPNvmlFreqModulatorServer:
 
     @staticmethod
     def get_cpu_overhead_us(running_queue_len: int) -> float:
-        cpu_overhead_us = (-0.227 * running_queue_len**2 +
-                           140.0168 * running_queue_len - 1500.5364)
+        cpu_overhead_us = (0.1502 * running_queue_len**2 +
+                           87.8455 * running_queue_len - 894.6241)
         cpu_overhead_us = max(0.0, cpu_overhead_us)
         return cpu_overhead_us
 
