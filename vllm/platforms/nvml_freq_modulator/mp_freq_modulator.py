@@ -113,6 +113,7 @@ class _MPNvmlFreqModulatorServer:
         future_window: int = 4,
         tbt_sla: float = 0.25,
         ttft_sla: float = 1.0,
+        mem_util_ceiling: float = 0.9,
     ):
         self.freq_choices = freq_choices
         self.q = q
@@ -121,6 +122,7 @@ class _MPNvmlFreqModulatorServer:
         self.future_windows = future_window
         self.tbt_sla = tbt_sla
         self.ttft_sla = ttft_sla
+        self.mem_util_ceiling = mem_util_ceiling
 
         self.latency_model_dir = (PATH_TO_MODELS / 'latency_model' /
                                   'a40_llama8-3b')
@@ -172,7 +174,10 @@ class _MPNvmlFreqModulatorServer:
 
             selected_freq_id, pred_batch_lat, pred_overhead = (
                 self._get_next_freq_dp(msg, future_states, prefill_cycles))
-            selected_freq = self.freq_choices[selected_freq_id]
+            if msg.gpu_cache_usage_sys < self.mem_util_ceiling:
+                selected_freq = self.freq_choices[selected_freq_id]
+            else:
+                selected_freq = max(self.freq_choices)
 
             freq_mod_start = time.perf_counter()
             nvml_set_freq(selected_freq)
@@ -317,7 +322,7 @@ class _MPNvmlFreqModulatorServer:
         future_states = []
         for i in range(future_window):
             # Chunked prefill logic
-            budget_left = 1024 if msg.gpu_cache_usage_sys > 0.9 else 0
+            budget_left = 1024
             prefills = []
             while budget_left > 0 and len(dummy_wait_queue) > 0:
                 num_tokens = min(budget_left, dummy_wait_queue[0])
