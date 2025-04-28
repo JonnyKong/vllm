@@ -33,6 +33,7 @@ class FreqModMsg(msgspec.Struct):
     wait_queue_num_prefill_tokens_per_req: list[int]
     wait_queue_num_processed_tokens_per_req: list[int]
     wait_queue_waiting_time_per_req: list[float]
+    gpu_cache_usage_sys: float
 
     def __post_init__(self):
         assert len(self.wait_queue_num_prefill_tokens_per_req) == len(
@@ -98,6 +99,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
             stats.wait_queue_num_prefill_tokens_per_req,
             stats.wait_queue_num_processed_tokens_per_req,
             stats.wait_queue_waiting_time_per_req,
+            stats.gpu_cache_usage_sys,
         )
 
 
@@ -315,7 +317,7 @@ class _MPNvmlFreqModulatorServer:
         future_states = []
         for i in range(future_window):
             # Chunked prefill logic
-            budget_left = 1024
+            budget_left = 1024 if msg.gpu_cache_usage_sys > 0.9 else 0
             prefills = []
             while budget_left > 0 and len(dummy_wait_queue) > 0:
                 num_tokens = min(budget_left, dummy_wait_queue[0])
