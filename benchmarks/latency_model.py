@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from benchmark_batch import BenchmarkBatchParam
-from benchmark_batch_driver import gen_power_profiling_args
+from benchmark_batch_driver import gen_from_trace
 from latency_and_power_model_sampler import get_cdf_data
 from lightgbm import LGBMRegressor
 from matplotlib import pyplot as plt
@@ -100,9 +100,10 @@ class MLPRegressor(nn.Module):
 def main(batch_type: str,
          model_type: str,
          freq_to_keep: Optional[int] = None,
-         enable_grid_search: bool = False):
+         enable_grid_search: bool = False,
+         include_precomputed: bool = False):
     assert model_type in ['gdbt', 'mlp']
-    assert batch_type in ['prefill-only', 'decode-only', 'hybrid']
+    assert batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']
 
     model_name = f'latency_model_{batch_type}_{model_type}'
     if freq_to_keep:
@@ -110,7 +111,7 @@ def main(batch_type: str,
     if enable_grid_search:
         model_name += '_grid-search'
 
-    X, Y, freqs = load_data(batch_type, freq_to_keep)
+    X, Y, freqs = load_data(batch_type, freq_to_keep, True)
     print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
@@ -206,24 +207,25 @@ def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
     plt.savefig(output_path)
 
 
-def load_data(batch_type: str, freq_to_keep: Optional[int]):
+def load_data(batch_type: str, freq_to_keep: Optional[int],
+              include_precomputed: False):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
 
     print('Loading data ...')
+
     for args in tqdm(
-            gen_power_profiling_args(tp=1,
-                                     pp=1,
-                                     skip_existing=False,
-                                     batch_type=batch_type)):
+            gen_from_trace(tp=1, pp=1, end_sample=20000,
+                           batch_type=batch_type)):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         if not perf_path.exists():
             print(f"Skipping {args.log_dir}, missing required files.")
             continue
         # print(f"Loading {args.log_dir} ...")
+
         try:
-            feat = get_feat(args)
+            feat = get_feat(args, include_precomputed)
             df_perf = pd.read_csv(perf_path)
             latency = (df_perf['pp_rank_0_end'] -
                        df_perf['pp_rank_0_start']).mean()
@@ -231,12 +233,21 @@ def load_data(batch_type: str, freq_to_keep: Optional[int]):
             if freq_to_keep and feat[0] != freq_to_keep:
                 continue
 
-            if batch_type == 'hybrid':
-                X.append(feat[:])
-            elif batch_type == 'prefill-only':
-                X.append(feat[:5])
-            else:  # batch_type == 'decode-only'
-                X.append(feat[[0, 5, 6, 7, 8]])
+            if (include_precomputed):
+                if batch_type == 'prefill-only':
+                    X.append(feat[:8])
+                elif batch_type == 'decode-only':
+                    X.append(feat[[0, 8, 9, 10, 11]])
+                else:
+                    X.append(feat[:])
+            else:
+                if batch_type == 'prefill-only':
+                    X.append(feat[:5])
+                elif batch_type == 'decode-only':
+                    X.append(feat[[0, 5, 6, 7, 8]])
+                else:
+                    X.append(feat[:])
+
             freqs.append(feat[0])  # Store frequency value
             Y.append(latency)
         except Exception as e:
@@ -246,16 +257,33 @@ def load_data(batch_type: str, freq_to_keep: Optional[int]):
     return np.array(X), np.array(Y), np.array(freqs)
 
 
-def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
+def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
     freq = float(p.gpu_freq_mhz)
 
     prefill_batch_size = len(p.prefill_input_lens)
+    prefill_completed_batch_size = len(p.prefill_completed_input_lens)
     if prefill_batch_size == 0:
         prefill_len_sum = prefill_len_std = prefill_len_max = 0
-    else:
+        computed_prefill_len_sum = computed_prefill_len_max = 0
+        computed_prefill_len_std = 0
+    elif prefill_completed_batch_size == 0:
         prefill_len_sum = np.sum(p.prefill_input_lens)
         prefill_len_std = np.std(p.prefill_input_lens)
         prefill_len_max = np.max(p.prefill_input_lens)
+        computed_prefill_len_sum = computed_prefill_len_max = 0
+        computed_prefill_len_std = 0
+    else:
+        prefill_lens = np.array(p.prefill_input_lens)
+        computed_prefill_lens = np.array(p.prefill_completed_input_lens)
+        uncomputed_prefill_lens = prefill_lens - computed_prefill_lens
+
+        prefill_len_sum = np.sum(uncomputed_prefill_lens)
+        prefill_len_std = np.std(uncomputed_prefill_lens)
+        prefill_len_max = np.max(uncomputed_prefill_lens)
+
+        computed_prefill_len_sum = np.sum(computed_prefill_lens)
+        computed_prefill_len_std = np.std(computed_prefill_lens)
+        computed_prefill_len_max = np.max(computed_prefill_lens)
 
     decode_batch_size = len(p.decode_input_lens)
     if len(p.decode_input_lens) == 0:
@@ -265,22 +293,42 @@ def get_feat(p: BenchmarkBatchParam) -> np.ndarray:
         decode_len_std = np.std(p.decode_input_lens)
         decode_len_max = np.max(p.decode_input_lens)
 
-    return np.array([
-        freq,
-        prefill_batch_size,
-        prefill_len_sum,
-        prefill_len_std,
-        prefill_len_max,
-        decode_batch_size,
-        decode_len_sum,
-        decode_len_std,
-        decode_len_max,
-    ]).astype(np.float32)
+    if include_precomputed:
+        ret = np.array([
+            freq,
+            prefill_batch_size,
+            prefill_len_sum,
+            prefill_len_std,
+            prefill_len_max,
+            computed_prefill_len_sum,
+            computed_prefill_len_std,
+            computed_prefill_len_max,
+            decode_batch_size,
+            decode_len_sum,
+            decode_len_std,
+            decode_len_max,
+        ]).astype(np.float32)
+    else:
+        ret = np.array([
+            freq,
+            prefill_batch_size,
+            prefill_len_sum,
+            prefill_len_std,
+            prefill_len_max,
+            decode_batch_size,
+            decode_len_sum,
+            decode_len_std,
+            decode_len_max,
+        ]).astype(np.float32)
+
+    return ret
 
 
 if __name__ == '__main__':
-    # for batch_type in ['prefill-only', 'decode-only', 'hybrid']:
-    for batch_type in ['hybrid']:
-        for enable_grid_search in [False, True]:
-            main(batch_type, 'gdbt', enable_grid_search=enable_grid_search)
+    for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+        for enable_grid_search in [False]:
+            main(batch_type,
+                 'gdbt',
+                 enable_grid_search=enable_grid_search,
+                 include_precomputed=True)
         # main(batch_type, 'mlp')

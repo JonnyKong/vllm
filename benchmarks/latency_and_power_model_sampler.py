@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
+import ast
+import os
 import random
+import re
 from pathlib import Path
 
+import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
 from benchmark_utils import uniform_sample_sorted
 from matplotlib import pyplot as plt
@@ -40,6 +44,13 @@ def gen_benchmark_batch_args_sample_decode_only(num_samples: int,
                    num_freqs=num_freqs,
                    enable_prefill=False,
                    enable_decode=True)
+
+
+def gen_benchmark_batch_args_sample_from_trace(start_sample: int,
+                                               num_freqs: int, trace_dir: str):
+    return _sample_from_trace(start_sample=start_sample,
+                              num_freqs=num_freqs,
+                              trace_dir=trace_dir)
 
 
 def _get_lognorm_generator(shape: float,
@@ -132,6 +143,57 @@ def _sample(num_samples: int,
         )
 
     return list(gen_one() for _ in range(num_samples))
+
+
+def _sample_from_trace(start_sample: int, num_freqs: int, trace_dir: str):
+
+    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
+    params = []
+    csv_files = [
+        f for f in os.listdir(trace_dir)
+        if re.match(r'perf_metric_\d+\.csv', f)
+    ]
+
+    for filename in csv_files:
+        full_path = os.path.join(trace_dir, filename)
+        df = pd.read_csv(full_path)
+
+        print(f"Processing file: {filename}")
+        count = 0
+        for idx, row in df.iterrows():
+
+            # Convert stringified list to actual list
+            num_computed_tokens = ast.literal_eval(
+                row['num_precomputed_tokens_per_req_iter'])
+            chunk_sizes = ast.literal_eval(row['chunk_size_per_req_iter'])
+
+            if (len(num_computed_tokens) == 0):
+                continue
+            count += 1
+
+            prefill_lens = []
+            prefill_computed_lens = []
+            decode_lens = []
+
+            for i in range(len(num_computed_tokens)):
+                if chunk_sizes[i] == 1:
+                    decode_lens.append(num_computed_tokens[i])
+                else:
+                    prefill_lens.append(num_computed_tokens[i] +
+                                        chunk_sizes[i])
+                    prefill_computed_lens.append(num_computed_tokens[i])
+
+            params.append(
+                BenchmarkBatchParam(
+                    prefill_input_lens=prefill_lens,
+                    prefill_completed_input_lens=prefill_computed_lens,
+                    decode_input_lens=decode_lens,
+                    log_dir="/tmp/results",
+                    gpu_freq_mhz=random.choice(test_freqs),
+                    min_num_iters=2,
+                    min_seconds=1,
+                ))
+    return params
 
 
 def get_cdf_data(raw_data, scale=1.0):

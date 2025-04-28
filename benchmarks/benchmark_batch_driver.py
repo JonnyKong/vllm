@@ -3,7 +3,6 @@ import ast
 import copy
 import itertools
 import os
-import random
 import re
 import sys
 from pathlib import Path
@@ -230,7 +229,8 @@ def gen_from_trace(
     num_freqs: int = 11,
     trace_dir:
     str = "/export2/datla/energy_efficient_serving_results/" \
-        "azure_trace_sampling/slightly_underloaded_qps/logs"
+        "azure_trace_sampling/slightly_underloaded_qps/logs",
+    batch_type: Optional[str] = None
 ):
 
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
@@ -280,6 +280,14 @@ def gen_from_trace(
             for i in range(start_decode_ind, len(chunk_sizes)):
                 decode_lens.append(num_computed_tokens[i] + chunk_sizes[i])
 
+            if (batch_type == "hybrid" and
+                (len(prefill_lens) == 0 or len(decode_lens) == 0)
+                    or batch_type == "prefill-only" and len(decode_lens) > 0
+                    or batch_type == "decode-only" and len(prefill_lens) > 0):
+
+                continue
+
+            freq = test_freqs[count % len(test_freqs)]
             params.append(
                 BenchmarkBatchParam(
                     prefill_input_lens=prefill_lens,
@@ -288,8 +296,8 @@ def gen_from_trace(
                     log_dir=
                     "/export2/datla/energy_efficient_serving_results/" \
                     "azure_trace_sampling/slightly_underloaded_qps_batches/" \
-                    f"logs/batch_{count}",
-                    gpu_freq_mhz=random.choice(test_freqs),
+                    f"logs/batch_{count}_freq_{freq}",
+                    gpu_freq_mhz=freq,
                     min_num_iters=2,
                     min_seconds=1,
                 ))

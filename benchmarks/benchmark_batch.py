@@ -210,6 +210,7 @@ def build_dummy_execute_model_request(
                 benchmark_batch_param.prefill_completed_input_lens[i]
         else:
             completed_input_len = 0
+
         seq_group_metadata_list.append(
             build_dummy_seq_group_metadata(llm,
                                            tokenizer,
@@ -304,8 +305,9 @@ if __name__ == '__main__':
     vllm_args = parser.parse_args(vllm_args)
 
     benchmark_batch_param = BenchmarkBatchParam(
-        prefill_input_lens=[1024, 1024],
-        decode_input_lens=[128 for _ in range(512)],
+        prefill_input_lens=[1074],
+        decode_input_lens=[],
+        prefill_completed_input_lens=[1024],
         log_dir='./logs',
         gpu_freq_mhz=nvml_get_available_freq()[-1],
         gpu_power_meas_interval=0.001,
