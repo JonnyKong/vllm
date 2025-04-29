@@ -1799,7 +1799,7 @@ class LLMEngine:
         num_generation_tokens_iter = 0
         num_precomputed_tokens_per_req_iter = []
         chunk_size_per_req_iter = []
-        chunk_size_per_req_iter_request_ids = []
+        req_ids_iter = []
         num_tokens_iter = 0
         batch_size_prompt_iter = 0
         batch_size_generation_iter = 0
@@ -1917,8 +1917,7 @@ class LLMEngine:
                     scheduled_seq_group.token_chunk_size)
                 chunk_size_per_req_iter.append(
                     scheduled_seq_group.token_chunk_size)
-                chunk_size_per_req_iter_request_ids.append(
-                    scheduled_seq_group.seq_group.request_id)
+                req_ids_iter.append(scheduled_seq_group.seq_group.request_id)
 
                 # Because of chunked prefill, we can have a single sequence
                 # group that does multiple prompt_runs. To prevent logging
@@ -2022,8 +2021,7 @@ class LLMEngine:
             num_precomputed_tokens_per_req_iter=
             num_precomputed_tokens_per_req_iter,
             chunk_size_per_req_iter=chunk_size_per_req_iter,
-            chunk_size_per_req_iter_request_ids=
-            chunk_size_per_req_iter_request_ids,
+            req_ids_iter=req_ids_iter,
             num_tokens_iter=num_tokens_iter,
             batch_size_prompt_iter=batch_size_prompt_iter,
             batch_size_generation_iter=batch_size_generation_iter,
