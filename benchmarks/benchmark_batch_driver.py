@@ -222,16 +222,18 @@ def gen_chunked_prefill_args(tp: int,
 
 
 def gen_from_trace(
-    tp: int,
-    pp: int,
-    start_sample: int = 0,
-    end_sample: int = 20000,
-    num_freqs: int = 11,
-    trace_dir:
-    str = "/export2/datla/energy_efficient_serving_results/" \
-        "azure_trace_sampling/slightly_underloaded_qps/logs",
-    batch_type: Optional[str] = None
-):
+        tp: int,
+        pp: int,
+        start_sample: int = 0,
+        end_sample: int = 20000,
+        num_freqs: int = 11,
+        trace_dir:
+    str = "/export2/kong102/energy_efficient_serving_results/request_timing"
+    "/2025-04-28_lat-model-profiling/a40_qps9_reqs20000_fixed1740",
+        log_dir_base:
+    str = "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_"
+    "results/azure_trace_sampling/a40_qps9_reqs20000_fixed1740/",
+        batch_type: Optional[str] = None):
 
     test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
     params = []
@@ -293,10 +295,7 @@ def gen_from_trace(
                     prefill_input_lens=prefill_lens,
                     prefill_completed_input_lens=prefill_computed_lens,
                     decode_input_lens=decode_lens,
-                    log_dir=
-                    "/export2/datla/energy_efficient_serving_results/" \
-                    "azure_trace_sampling/slightly_underloaded_qps_batches/" \
-                    f"logs/batch_{count}_freq_{freq}",
+                    log_dir=f"{log_dir_base}/logs/batch_{count}_freq_{freq}",
                     gpu_freq_mhz=freq,
                     min_num_iters=2,
                     min_seconds=1,

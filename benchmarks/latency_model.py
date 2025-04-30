@@ -111,14 +111,14 @@ def main(batch_type: str,
     if enable_grid_search:
         model_name += '_grid-search'
 
-    X, Y, freqs = load_data(batch_type, freq_to_keep, True)
+    X, Y, freqs = load_data(batch_type, freq_to_keep, include_precomputed)
     print(f"Loaded {len(X)} samples.")
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
         train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
     Y_train_log = np.log(Y_train)
 
     if model_type == 'gdbt':
-        model = LGBMRegressor()
+        model = LGBMRegressor(objective='l2')
         if enable_grid_search:
             param_grid = {
                 'num_leaves': [31, 50, 100],
@@ -215,9 +215,38 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
 
     print('Loading data ...')
 
-    for args in tqdm(
-            gen_from_trace(tp=1, pp=1, end_sample=20000,
-                           batch_type=batch_type)):
+    samples1740 = gen_from_trace(
+        tp=1,
+        pp=1,
+        end_sample=20000,
+        batch_type=batch_type,
+        trace_dir=
+        "/export2/kong102/energy_efficient_serving_results/request_timing/2025-04-28_lat-model-profiling/a40_qps9_reqs20000_fixed1740/",
+        log_dir_base=
+        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/a40_qps9_reqs20000_fixed1740/"
+    )
+    samples1440 = gen_from_trace(
+        tp=1,
+        pp=1,
+        end_sample=20000,
+        batch_type=batch_type,
+        trace_dir=
+        "/export2/kong102/energy_efficient_serving_results/request_timing/2025-04-28_lat-model-profiling/a40_qps9_reqs20000_fixed1440/",
+        log_dir_base=
+        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/a40_qps9_reqs20000_fixed1440/"
+    )
+    samples1125 = gen_from_trace(
+        tp=1,
+        pp=1,
+        end_sample=20000,
+        batch_type=batch_type,
+        trace_dir=
+        "/export2/kong102/energy_efficient_serving_results/request_timing/2025-04-28_lat-model-profiling/a40_qps9_reqs20000_fixed1125/",
+        log_dir_base=
+        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/a40_qps9_reqs20000_fixed1125/"
+    )
+    samples = samples1740 + samples1440 + samples1125
+    for args in tqdm(samples):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         if not perf_path.exists():
             print(f"Skipping {args.log_dir}, missing required files.")
@@ -325,10 +354,11 @@ def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+    # for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+    for batch_type in ['hybrid']:
         for enable_grid_search in [False]:
             main(batch_type,
                  'gdbt',
                  enable_grid_search=enable_grid_search,
-                 include_precomputed=True)
+                 include_precomputed=False)
         # main(batch_type, 'mlp')
