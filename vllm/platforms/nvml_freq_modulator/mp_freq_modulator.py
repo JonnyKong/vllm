@@ -64,17 +64,19 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
     """
 
     def __init__(
-        self,
-        llm_engine,
-        freq_choices: list[int],
-        log_dir: Path,
+            self,
+            llm_engine,
+            freq_choices: list[int],
+            log_dir: Path,
+            optim_target: str = 'energy',  # 'energy' or 'power'
     ):
         self.llm_engine = llm_engine
 
         self.q: SimpleQueue = get_mp_context().SimpleQueue()
         self.server = _MPNvmlFreqModulatorServer(freq_choices,
                                                  self.q,
-                                                 log_dir=log_dir)
+                                                 log_dir=log_dir,
+                                                 optim_target=optim_target)
         self.server_process: Process = get_mp_context().Process(
             target=self.server.run)
         self.server_process.start()
@@ -110,6 +112,7 @@ class _MPNvmlFreqModulatorServer:
         freq_choices: list[int],
         q: SimpleQueue,
         log_dir: Path,
+        optim_target: str,
         future_window: int = 4,
         tbt_sla: float = 0.25,
         ttft_sla: float = 1.0,
@@ -123,6 +126,7 @@ class _MPNvmlFreqModulatorServer:
         self.tbt_sla = tbt_sla
         self.ttft_sla = ttft_sla
         self.mem_util_ceiling = mem_util_ceiling
+        self.optim_target = optim_target
 
         self.latency_model_dir = (PATH_TO_MODELS / 'latency_model' /
                                   'a40_llama8-3b')
@@ -274,7 +278,17 @@ class _MPNvmlFreqModulatorServer:
                 energy_per_batch = energy_mat[
                     np.arange(max_future_vision)[:, None], candidates.T]
                 total_energy = np.sum(energy_per_batch, axis=0)
-                selected_freq_ids = candidates[np.argmin(total_energy)]
+                if self.optim_target == 'energy':
+                    selected_freq_ids = candidates[np.argmin(total_energy)]
+                elif self.optim_target == 'power':
+                    lat_per_batch = lat_mat[np.arange(max_future_vision)[:,
+                                                                         None],
+                                            candidates.T]
+                    total_lat = np.sum(lat_per_batch, axis=0)
+                    total_power = total_energy / total_lat
+                    selected_freq_ids = candidates[np.argmin(total_power)]
+                else:
+                    raise NotImplementedError(self.optim_target)
             else:
                 break
 
@@ -473,12 +487,15 @@ if __name__ == '__main__':
         1740,
     ],
                                    q=q,
-                                   log_dir=Path('./logs'))
+                                   log_dir=Path('./logs'),
+                                   optim_target='energy')
     msg = FreqModMsg(
+        now=0.0,
         running_queue_num_tokens_per_req=[1074],
         wait_queue_num_prefill_tokens_per_req=[],
         wait_queue_num_processed_tokens_per_req=[],
         wait_queue_waiting_time_per_req=[],
+        gpu_cache_usage_sys=0.1,
     )
     for _ in range(10):
         q.put(msgspec.msgpack.encode(msg))
