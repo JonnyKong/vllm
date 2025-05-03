@@ -68,7 +68,9 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
             llm_engine,
             freq_choices: list[int],
             log_dir: Path,
-            optim_target: str = 'energy',  # 'energy' or 'power'
+            tbt_sla: float = 0.25,
+            ttft_sla: float = 1.0,
+            optim_target: str = 'energy',  # 'energy' or 'power'factory
     ):
         self.llm_engine = llm_engine
 
@@ -76,6 +78,8 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
         self.server = _MPNvmlFreqModulatorServer(freq_choices,
                                                  self.q,
                                                  log_dir=log_dir,
+                                                 tbt_sla=tbt_sla,
+                                                 ttft_sla=ttft_sla,
                                                  optim_target=optim_target)
         self.server_process: Process = get_mp_context().Process(
             target=self.server.run)
@@ -113,9 +117,9 @@ class _MPNvmlFreqModulatorServer:
         q: SimpleQueue,
         log_dir: Path,
         optim_target: str,
+        tbt_sla: float,
+        ttft_sla: float,
         future_window: int = 4,
-        tbt_sla: float = 0.25,
-        ttft_sla: float = 1.0,
         mem_util_ceiling: float = 0.9,
     ):
         self.freq_choices = freq_choices
@@ -488,7 +492,9 @@ if __name__ == '__main__':
     ],
                                    q=q,
                                    log_dir=Path('./logs'),
-                                   optim_target='energy')
+                                   optim_target='energy',
+                                   tbt_sla=0.25,
+                                   ttft_sla=1.0)
     msg = FreqModMsg(
         now=0.0,
         running_queue_num_tokens_per_req=[1074],
