@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pandas as pd
 from benchmark_batch import BenchmarkBatchParam
-from benchmark_utils import uniform_sample_sorted
 from matplotlib import pyplot as plt
 from scipy.stats import lognorm
 
 from vllm.platforms import current_platform
-from vllm.platforms.nvml_utils import nvml_get_available_freq
+from vllm.platforms.nvml_utils import (nvml_get_available_freq,
+                                       uniform_sample_sorted)
 
 ################ Knobs ###############
 # Profiled empirically on A40, llama3-8b

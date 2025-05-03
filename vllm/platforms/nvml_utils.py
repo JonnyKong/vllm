@@ -33,6 +33,20 @@ def nvml_get_available_freq():
                                                     highest_memory_clock))
 
 
+def uniform_sample_sorted(lst, k):
+    """
+    Selects `k` elements from the sorted input list as uniformly as possible,
+    ensuring the first and last elements are included.
+    """
+    if k < 2 or k > len(lst):
+        raise ValueError(
+            "k must be at least 2 and at most the length of the list")
+    lst = sorted(lst)
+    step = (len(lst) - 1) / (k - 1)
+    indices = sorted(set(round(i * step) for i in range(k)))
+    return [lst[i] for i in indices]
+
+
 @contextlib.contextmanager
 def nvml_lock_freq(freq):
     """
@@ -122,3 +136,8 @@ class CSVWriter:
 
     def close(self):
         self.file.close()
+
+
+if __name__ == '__main__':
+    freqs = uniform_sample_sorted(nvml_get_available_freq(), 10)
+    print(freqs)

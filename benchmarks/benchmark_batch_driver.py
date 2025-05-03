@@ -11,15 +11,15 @@ from typing import Callable, Optional
 import pandas as pd
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
-from benchmark_utils import (get_gpu_name, get_result_root,
-                             uniform_sample_sorted)
+from benchmark_utils import get_gpu_name, get_result_root
 from latency_and_power_model_sampler import (
     gen_benchmark_batch_args_sample_decode_only,
     gen_benchmark_batch_args_sample_hybrid,
     gen_benchmark_batch_args_sample_prefill_only)
 
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.platforms.nvml_utils import nvml_get_available_freq
+from vllm.platforms.nvml_utils import (nvml_get_available_freq,
+                                       uniform_sample_sorted)
 from vllm.utils import FlexibleArgumentParser
 
 
