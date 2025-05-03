@@ -139,7 +139,7 @@ def start_nvml_power_monitor(
 @contextlib.contextmanager
 def measure_power(csv_filename,
                   interval=0.1,
-                  log_interval=1,
+                  log_interval=0.1,
                   enable_mem_freq_meas=False,
                   power_queue: Optional[multiprocessing.SimpleQueue] = None):
     process = multiprocessing.Process(target=start_nvml_power_monitor,
