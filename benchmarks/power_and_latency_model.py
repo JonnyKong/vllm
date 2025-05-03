@@ -483,5 +483,5 @@ if __name__ == '__main__':
             main(batch_type,
                  'gdbt',
                  enable_grid_search=enable_grid_search,
-                 include_precomputed=False)
+                 include_precomputed=True)
         # main(batch_type, 'mlp')
