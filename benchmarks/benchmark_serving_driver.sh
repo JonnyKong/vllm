@@ -7,6 +7,7 @@ MODEL_NAME_HF=microsoft/phi-2
 GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n1 | awk '{print $NF}')
 MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
 
+# Keep it same with `benchmark_batch_driver.py`
 ADDITIONAL_VLLM_ARGS=""
 if [[ ${GPU} == "A40" && ${MODEL_NAME_HF} == "meta-llama/Llama-3.1-8B-Instruct" ]]; then
     ADDITIONAL_VLLM_ARGS+=" --max-model-len 65536 --max-num-seqs 1024 --max-num-batched-tokens 1024"

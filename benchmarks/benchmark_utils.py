@@ -74,7 +74,10 @@ def write_to_json(filename: str, records: list) -> None:
 def get_gpu_name():
     if not torch.cuda.is_available():
         raise RuntimeError('No GPU found')
-    return torch.cuda.get_device_name(0).replace('NVIDIA ', '')
+    ret = torch.cuda.get_device_name(0)
+    ret = ret.replace('NVIDIA ', '')
+    ret = ret.replace('Tesla ', '')
+    return ret
 
 
 def get_result_root() -> Path:

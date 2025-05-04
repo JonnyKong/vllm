@@ -359,21 +359,30 @@ def gen_compare_w_wo_precompute(
     return params
 
 
-def main(expr_fn: Callable):
+def main(expr_fn: Callable, model: str):
     tp = 1
     pp = 1
-    model = 'meta-llama/Llama-3.1-8B-Instruct'
     vllm_args = (f"--model {model} "
                  f"-tp {tp} "
                  f"-pp {pp} "
                  "--disable-async-output-proc "
-                 "--max-num-seqs 1024 --max-num-batched-tokens 1024 "
-                 "--max-model-len 65536 "
                  "--disable-python-gc "
-                 "--collect-detailed-traces worker,power").split()
+                 "--collect-detailed-traces worker,power ")
+
+    # Keep it same with `benchmark_serving_driver.sh`
+    gpu_name = get_gpu_name()
+    if gpu_name == 'A40' and model == 'meta-llama/Llama-3.1-8B-Instruct':
+        vllm_args += ('--max-model-len 65536 --max-num-seqs 1024 '
+                      '--max-num-batched-tokens 1024 ')
+    elif gpu_name == 'T4' and model == 'microsoft/phi-2':
+        vllm_args += '--max-model-len 2048 --dtype=half '
+    else:
+        raise NotImplementedError(f'gpu: {gpu_name}, model: {model}')
+    print('vllm_args: ', vllm_args)
+
     parser = FlexibleArgumentParser(description="Benchmark per-batch.")
     parser = AsyncEngineArgs.add_cli_args(parser)
-    vllm_args = parser.parse_args(vllm_args)
+    vllm_args = parser.parse_args(vllm_args.split())
 
     # Pass in a list instead of generator so tqdm prints progress
     params = expr_fn(tp=tp, pp=pp)
@@ -394,4 +403,5 @@ if __name__ == '__main__':
         'trace': gen_from_trace,
         'compare_w_wo_precompute': gen_compare_w_wo_precompute,
     }[sys.argv[1]]
-    main(expr_fn)
+    model = sys.argv[2]
+    main(expr_fn, model)
