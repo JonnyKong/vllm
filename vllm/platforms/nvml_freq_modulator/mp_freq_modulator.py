@@ -419,9 +419,9 @@ class _MPNvmlFreqModulatorServer:
             ]
             # Update decode statistics
             if chunked and num_prefills > 1:
-                prefills_wo_len_sum = np.sum(prefills[1:]).item()
-                prefills_wo_len_max = np.max(prefills[1:], initial=prefills[1])
-                prefills_wo_len_std = np.std(prefills[1:]).item()
+                prefills_wo_len_sum = np.sum(prefills[:-1]).item()
+                prefills_wo_len_max = np.max(prefills[:-1], initial=prefills[1])
+                prefills_wo_len_std = np.std(prefills[:-1]).item()
 
                 decode_len_max = max(decode_len_max, prefills_wo_len_max) + 1
                 decode_len_std = np.sqrt(
@@ -430,7 +430,7 @@ class _MPNvmlFreqModulatorServer:
                     (num_decodes + num_prefills + 1e-6))
                 decode_len_sum += num_decodes + prefills_wo_len_sum
                 num_decodes += num_prefills - 1
-                decode_precomputed_tokens = prefill_precomputed_tokens[1:0] + \
+                decode_precomputed_tokens = prefill_precomputed_tokens[:-1] + \
                                             decode_precomputed_tokens
             elif chunked:
                 decode_len_max = decode_len_max + 1
