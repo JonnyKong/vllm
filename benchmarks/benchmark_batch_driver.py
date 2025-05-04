@@ -367,6 +367,7 @@ def main(expr_fn: Callable, model: str):
                  f"-pp {pp} "
                  "--disable-async-output-proc "
                  "--disable-python-gc "
+                 "--enable-chunked-prefill "
                  "--collect-detailed-traces worker,power ")
 
     # Keep it same with `benchmark_serving_driver.sh`
@@ -376,6 +377,9 @@ def main(expr_fn: Callable, model: str):
                       '--max-num-batched-tokens 1024 ')
     elif gpu_name == 'T4' and model == 'microsoft/phi-2':
         vllm_args += '--max-model-len 2048 --dtype=half '
+    elif gpu_name == 'A100-SXM4-80GB' and model == 'google/gemma-2-27b-it':
+        vllm_args += ('--max-model-len 8192 --max-num-seqs 1024 '
+                      '--max-num-batched-tokens 1024 ')
     else:
         raise NotImplementedError(f'gpu: {gpu_name}, model: {model}')
     print('vllm_args: ', vllm_args)
