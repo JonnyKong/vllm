@@ -214,7 +214,7 @@ if __name__ == '__main__':
             gen_benchmark_batch_args_sample_prefill_only,
             gen_benchmark_batch_args_sample_decode_only,
     ]:
-        params = list(fn(num_samples=2000, num_freqs=11))
+        params = list(fn(num_samples=2000, num_freqs=10))
         dists_to_plot = {
             'prefill_len':
             [length for p in params for length in p.prefill_input_lens],

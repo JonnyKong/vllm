@@ -122,7 +122,7 @@ def gen_sarathi_args(pp: int, tp: int):
 def gen_power_profiling_args(pp: int,
                              tp: int,
                              skip_existing: bool = True,
-                             num_freqs: int = 11,
+                             num_freqs: int = 10,
                              batch_type: Optional[str] = None):
     expr_dir = (
         get_result_root() /
@@ -161,7 +161,7 @@ def gen_power_profiling_args(pp: int,
 def gen_args_test_energy_linearity_of_hybrid_batches(pp: int,
                                                      tp: int,
                                                      skip_existing: bool = True,
-                                                     num_freqs: int = 11):
+                                                     num_freqs: int = 10):
     """
     For each hybrid batch, break it down in to prefill-only and decode-only
     batches, to see if energy of the hybrid batch is the sum of prefill and
@@ -197,7 +197,7 @@ def gen_args_test_energy_linearity_of_hybrid_batches(pp: int,
 def gen_chunked_prefill_args(tp: int,
                              pp: int,
                              skip_existing: bool = False,
-                             num_freqs: int = 11):
+                             num_freqs: int = 10):
     params = []
     decode_bss = [0, 100, 200, 300, 400]
     decode_len = 200
@@ -226,7 +226,7 @@ def gen_from_trace(
         pp: int,
         start_sample: int = 0,
         end_sample: int = 20000,
-        num_freqs: int = 11,
+        num_freqs: int = 10,
         trace_dir:
     str = "/export2/kong102/energy_efficient_serving_results/request_timing"
     "/2025-04-28_lat-model-profiling/a40_qps9_reqs20000_fixed1740",
@@ -306,7 +306,7 @@ def gen_from_trace(
 def gen_compare_w_wo_precompute(
     tp: int,
     pp: int,
-    num_freqs: int = 11,
+    num_freqs: int = 10,
 ):
     # test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
     test_freqs = [825, 975, 1125, 1275]
