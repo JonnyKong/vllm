@@ -333,7 +333,6 @@ class _MPNvmlFreqModulatorServer:
         num_prefill_tokens = msg.wait_queue_num_prefill_tokens_per_req
         num_processed_tokens = msg.wait_queue_num_processed_tokens_per_req
         decode_precomputed_tokens = msg.num_precomputed_tokens_per_req_iter
-        precomputed_token = decode_precomputed_tokens
         # list of (total tokens, processed tokens, remaining tokens)
         dummy_wait_queue = [
             (m, n, m - n)
@@ -357,7 +356,8 @@ class _MPNvmlFreqModulatorServer:
             budget_left = 1024
             prefills = []
             prefill_precomputed_tokens = []
-            precomputed_pop_append = False
+            precomputed_token = []
+            chunked = False
             while budget_left > 0 and len(dummy_wait_queue) > 0:
                 num_tokens = min(budget_left, dummy_wait_queue[0][2])
                 prefills.append(num_tokens)
@@ -371,11 +371,11 @@ class _MPNvmlFreqModulatorServer:
                 remaining_tokens -= num_tokens  # Update remaining tokens
                 dummy_wait_queue[0] = (total_tokens, processed_tokens,
                                        remaining_tokens)  # Update tuple
-                precomputed_pop_append = True
+                chunked = True
                 if dummy_wait_queue[0][2] == 0:
                     dummy_wait_queue.pop(0)
                     prefill_cycles.append(i + 1)
-                    precomputed_pop_append = False
+                    chunked = False
 
             num_prefills = len(prefills)
             if num_prefills > 0:
@@ -387,6 +387,8 @@ class _MPNvmlFreqModulatorServer:
                 prefill_len_max = 0
                 prefill_len_std = 0.0
 
+            precomputed_token = prefill_precomputed_tokens + \
+                                decode_precomputed_tokens
             if len(precomputed_token) > 0:
                 computed_prefill_len_sum = np.sum(precomputed_token).item()
                 computed_prefill_len_max = np.max(precomputed_token,
@@ -412,21 +414,38 @@ class _MPNvmlFreqModulatorServer:
                     computed_prefill_len_max,
                 ))
 
+            decode_precomputed_tokens = [
+                x + 1 for x in decode_precomputed_tokens
+            ]
             # Update decode statistics
-            decode_len_max = max(decode_len_max, prefill_len_max) + 1
-            decode_len_std = np.sqrt((num_decodes * decode_len_std**2 +
-                                      num_prefills * prefill_len_std**2) /
-                                     (num_decodes + num_prefills + 1e-6))
-            # all requests progress by 1 and prefills are added to decodes
-            decode_len_sum += num_decodes + prefill_len_sum + num_prefills
-            # last batches prefills are added to decodes
-            num_decodes += num_prefills
-            if precomputed_pop_append:
-                precomputed_token = prefill_precomputed_tokens + \
-                                    decode_precomputed_tokens[1:]
+            if chunked and num_prefills > 1:
+                prefills_wo_len_sum = np.sum(prefills[1:]).item()
+                prefills_wo_len_max = np.max(prefills[1:], initial=prefills[1])
+                prefills_wo_len_std = np.std(prefills[1:]).item()
+
+                decode_len_max = max(decode_len_max, prefills_wo_len_max) + 1
+                decode_len_std = np.sqrt(
+                    (num_decodes * decode_len_std**2 +
+                     (num_prefills - 1) * prefills_wo_len_std**2) /
+                    (num_decodes + num_prefills + 1e-6))
+                decode_len_sum += num_decodes + prefills_wo_len_sum
+                num_decodes += num_prefills - 1
+                decode_precomputed_tokens = prefill_precomputed_tokens[1:0] + \
+                                            decode_precomputed_tokens
+            elif chunked:
+                decode_len_max = decode_len_max + 1
+                decode_len_std = decode_len_std
+                decode_len_sum += num_decodes
             else:
-                precomputed_token = prefill_precomputed_tokens + \
-                                    decode_precomputed_tokens
+                decode_len_max = max(decode_len_max, prefill_len_max) + 1
+                decode_len_std = np.sqrt((num_decodes * decode_len_std**2 +
+                                          num_prefills * prefill_len_std**2) /
+                                         (num_decodes + num_prefills + 1e-6))
+                # all requests progress by 1 and prefills are added to decodes
+                decode_len_sum += num_decodes + prefill_len_sum + num_prefills
+                num_decodes += num_prefills
+                decode_precomputed_tokens = prefill_precomputed_tokens + \
+                                            decode_precomputed_tokens
 
         return future_states, prefill_cycles
 
