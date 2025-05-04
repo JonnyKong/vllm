@@ -420,7 +420,8 @@ class _MPNvmlFreqModulatorServer:
             # Update decode statistics
             if chunked and num_prefills > 1:
                 prefills_wo_len_sum = np.sum(prefills[:-1]).item()
-                prefills_wo_len_max = np.max(prefills[:-1], initial=prefills[1])
+                prefills_wo_len_max = np.max(prefills[:-1],
+                                             initial=prefills[0])
                 prefills_wo_len_std = np.std(prefills[:-1]).item()
 
                 decode_len_max = max(decode_len_max, prefills_wo_len_max) + 1
