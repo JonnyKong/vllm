@@ -88,6 +88,16 @@ class BenchmarkBatchParam:
         hash_str += str(self.delay_time_max_s)
         return int(hashlib.md5(hash_str.encode()).hexdigest(), 16)
 
+    def get_batch_type(self) -> str:
+        if len(self.prefill_input_lens) > 0 and len(self.decode_input_lens):
+            return 'hybrid'
+        elif len(self.prefill_input_lens) > 0:
+            return 'prefill-only'
+        elif len(self.decode_input_lens) > 0:
+            return 'decode-only'
+        else:
+            raise RuntimeError('Malformed BenchmarkBatchParam')
+
 
 async def benchmark_batch(
     vllm_args: argparse.Namespace,
