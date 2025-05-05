@@ -390,9 +390,8 @@ def main(expr_fn: Callable, model: str):
 
     # Pass in a list instead of generator so tqdm prints progress
     params = expr_fn(tp=tp, pp=pp)
-    latencies = []
 
-    uvloop.run(benchmark_batch(vllm_args, params, latencies))
+    uvloop.run(benchmark_batch(vllm_args, params))
 
 
 if __name__ == '__main__':

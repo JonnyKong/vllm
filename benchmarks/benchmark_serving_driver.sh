@@ -1,8 +1,9 @@
 #!/bin/bash
 
 PORT=8002
-NUM_PROMPTS=3000
-MODEL_NAME_HF=google/gemma-2-27b-it
+NUM_PROMPTS=10000
+# MODEL_NAME_HF=google/gemma-2-27b-it
+MODEL_NAME_HF=microsoft/phi-2
 # LOG_DIR=~/energy_efficient_serving_results/request_timing/2025-05-03_profile-borderline-qps
 LOG_DIR=~/energy_efficient_serving_results/request_timing/2025-05-03_batch-shape-profiling
 

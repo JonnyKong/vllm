@@ -66,14 +66,38 @@ def nvml_lock_freq(freq):
     try:
         for handle in handles:
             pynvml.nvmlDeviceSetGpuLockedClocks(handle, freq, freq)
+            _retry_nvml_call(pynvml.nvmlDeviceSetGpuLockedClocks, handle, freq,
+                             freq)
         logger.info('Locking GPU freq at %d MHz ...', freq)
         yield
     finally:
         for handle in handles:
-            pynvml.nvmlDeviceResetGpuLockedClocks(handle)
+            _retry_nvml_call(pynvml.nvmlDeviceResetGpuLockedClocks, handle)
         with _nvml_freq_lock:
             _nvml_freq_active = False
         logger.info('Resetting GPU freq ...')
+
+
+def _retry_nvml_call(fn, *args, retries=3, delay=0.5):
+    for attempt in range(retries):
+        try:
+            fn(*args)
+            return
+        except pynvml.NVMLError as e:
+            logger.warning("NVML call failed with error '%s' (attempt %d/%d)",
+                           str(e), attempt + 1, retries)
+            if attempt < retries - 1:
+                try:
+                    pynvml.nvmlShutdown()
+                except pynvml.NVMLError as shutdown_err:
+                    logger.debug("nvmlShutdown failed: %s", shutdown_err)
+                try:
+                    pynvml.nvmlInit()
+                except pynvml.NVMLError as init_err:
+                    logger.debug("nvmlInit failed: %s", init_err)
+                time.sleep(delay)
+            else:
+                raise
 
 
 def nvml_set_freq(freq):

@@ -362,12 +362,12 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
     for args in tqdm(samples):
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         if not perf_path.exists():
-            # print(f"Skipping {args.log_dir}, missing required files.")
+            # print(f"Skipping {args.log_dir}, missing required perf files.")
             skipped += 1
             continue
         power_path = Path(args.log_dir) / 'power_log.csv'
         if not power_path.exists():
-            # print(f"Skipping {args.log_dir}, missing required files.")
+            # print(f"Skipping {args.log_dir}, missing required power files.")
             skipped += 1
             continue
         # print(f"Loading {args.log_dir} ...")
