@@ -134,7 +134,8 @@ def gen_from_trace(
                 prefill_input_lens=prefill_lens,
                 prefill_completed_input_lens=prefill_computed_lens,
                 decode_input_lens=decode_lens,
-                log_dir=f"{log_dir_base}/logs/batch_{idx}_freq_{freq}",
+                log_dir=
+                f"{log_dir_base}/logs/batch_{len(params):06d}_freq{freq}",
                 gpu_freq_mhz=freq,
                 min_num_iters=2,
                 min_seconds=1,
@@ -155,6 +156,7 @@ def gen_from_trace(
             break
         p_copy = copy.deepcopy(p)
         p_copy.decode_input_lens.clear()
+        p_copy.log_dir = f"{log_dir_base}/logs/batch_{(len(params) + len(prefills_supp)):06d}_freq{p.gpu_freq_mhz}"  # noqa
         prefills_supp.append(p_copy)
         counter['prefill-only'] += 1
     params.extend(prefills_supp)
