@@ -75,9 +75,9 @@ def gen_sarathi_args():
 
 def gen_from_trace(
         num_freqs: int = 10,
-        skip_existing: bool = False,
+        skip_existing: bool = True,
         log_dir_base:
-    str = "/export2/kong102/energy_efficient_serving_results/request_timing/2025-05-03_lat-model-profiling/A40_Llama-3.1-8B-Instruct",  # noqa
+    str = "/export2/kong102/energy_efficient_serving_results/request_timing/2025-05-05_lat-model-profiling/A40_Llama-3.1-8B-Instruct",  # noqa
 ):
 
     # Add new traces to the tail of this list, so that the log_dir of existing
@@ -164,7 +164,7 @@ def gen_from_trace(
     print('Batches per type: ', counter)
 
     if skip_existing:
-        params = [p for p in params if not p.log_dir.exists()]
+        params = [p for p in params if not Path(p.log_dir).exists()]
     return params
 
 
