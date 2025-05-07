@@ -11,11 +11,12 @@ import msgspec
 import numpy as np
 from lightgbm import Booster
 
+from vllm.config import VllmConfig
 from vllm.engine.metrics_types import Stats
 from vllm.logger import init_logger
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
     NvmlFreqModulatorInterface)
-from vllm.platforms.nvml_utils import CSVWriter, nvml_set_freq
+from vllm.platforms.nvml_utils import CSVWriter, get_gpu_name, nvml_set_freq
 from vllm.utils import get_mp_context
 
 logger = init_logger(__name__)
@@ -70,6 +71,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
     def __init__(
             self,
             llm_engine,
+            vllm_config: VllmConfig,
             freq_choices: list[int],
             log_dir: Path,
             tbt_sla: float = 0.25,
@@ -77,9 +79,11 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
             optim_target: str = 'power',  # 'energy' or 'power'factory
     ):
         self.llm_engine = llm_engine
+        self.vllm_config = vllm_config
 
         self.q: SimpleQueue = get_mp_context().SimpleQueue()
-        self.server = _MPNvmlFreqModulatorServer(freq_choices,
+        self.server = _MPNvmlFreqModulatorServer(vllm_config,
+                                                 freq_choices,
                                                  self.q,
                                                  log_dir=log_dir,
                                                  tbt_sla=tbt_sla,
@@ -118,6 +122,7 @@ class _MPNvmlFreqModulatorServer:
 
     def __init__(
         self,
+        vllm_config: VllmConfig,
         freq_choices: list[int],
         q: SimpleQueue,
         log_dir: Path,
@@ -127,6 +132,7 @@ class _MPNvmlFreqModulatorServer:
         future_window: int = 4,
         mem_util_ceiling: float = 0.9,
     ):
+        self.vllm_config = vllm_config
         self.freq_choices = freq_choices
         self.q = q
         self.log_dir = log_dir
@@ -137,15 +143,11 @@ class _MPNvmlFreqModulatorServer:
         self.mem_util_ceiling = mem_util_ceiling
         self.optim_target = optim_target
 
-        # self.latency_model_dir = (PATH_TO_MODELS / 'latency_model' /
-        #                           'a40_llama8-3b')
-        # self.power_model_dir = (PATH_TO_MODELS / 'power_model' /
-        #                         'a40_llama8-3b')
-
+        model_name = vllm_config.model_config.model.split('/')[-1]
+        combo_name = f'{get_gpu_name()}_{model_name}'
         self.latency_model_dir = (PATH_TO_MODELS / 'latency_model' /
-                                  'a40_llama8-3b')
-        self.power_model_dir = (PATH_TO_MODELS / 'power_model' /
-                                'a40_llama8-3b')
+                                  combo_name)
+        self.power_model_dir = (PATH_TO_MODELS / 'power_model' / combo_name)
 
         self.power_model: Booster
         self.latency_model_prefill: Booster
@@ -154,14 +156,16 @@ class _MPNvmlFreqModulatorServer:
 
     def _load_models(self):
         self.power_model = Booster(model_file=self.power_model_dir /
-                                   'power_model.txt')
+                                   'power_model_all_grid-search.txt')
         self.latency_model_prefill = Booster(
             model_file=self.latency_model_dir /
-            'latency_model_prefill-only.txt')
-        self.latency_model_decode = Booster(model_file=self.latency_model_dir /
-                                            'latency_model_decode-only.txt')
-        self.latency_model_hybrid = Booster(model_file=self.latency_model_dir /
-                                            'latency_model_hybrid.txt')
+            'latency_model_prefill-only_gdbt_grid-search.txt')
+        self.latency_model_decode = Booster(
+            model_file=self.latency_model_dir /
+            'latency_model_decode-only_gdbt_grid-search.txt')
+        self.latency_model_hybrid = Booster(
+            model_file=self.latency_model_dir /
+            'latency_model_hybrid_gdbt_grid-search.txt')
 
     def run(self):
         # Load models here rather than in __init__() so that we don't pass the

@@ -8,11 +8,11 @@ from typing import Callable
 import pandas as pd
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
-from benchmark_utils import get_gpu_name, get_result_root
+from benchmark_utils import get_result_root
 from paths import RESULT_ROOT
 
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.platforms.nvml_utils import (get_preselected_freq,
+from vllm.platforms.nvml_utils import (get_gpu_name, get_preselected_freq,
                                        nvml_get_available_freq,
                                        uniform_sample_sorted)
 from vllm.utils import FlexibleArgumentParser

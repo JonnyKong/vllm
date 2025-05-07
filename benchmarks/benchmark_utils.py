@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import torch
-
 
 def convert_to_pytorch_benchmark_format(args: argparse.Namespace,
                                         metrics: dict[str, list],
@@ -69,15 +67,6 @@ class InfEncoder(json.JSONEncoder):
 def write_to_json(filename: str, records: list) -> None:
     with open(filename, "w") as f:
         json.dump(records, f, cls=InfEncoder)
-
-
-def get_gpu_name():
-    if not torch.cuda.is_available():
-        raise RuntimeError('No GPU found')
-    ret = torch.cuda.get_device_name(0)
-    ret = ret.replace('NVIDIA ', '')
-    ret = ret.replace('Tesla ', '')
-    return ret
 
 
 def get_result_root() -> Path:

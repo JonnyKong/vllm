@@ -4,11 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 from benchmark_batch_driver import uniform_sample_sorted
-from benchmark_utils import get_gpu_name, get_result_root
+from benchmark_utils import get_result_root
 
 from vllm.logger import init_logger
 from vllm.platforms.nvml_power_monitor import measure_power
-from vllm.platforms.nvml_utils import nvml_get_available_freq, nvml_lock_freq
+from vllm.platforms.nvml_utils import (get_gpu_name, nvml_get_available_freq,
+                                       nvml_lock_freq)
 
 logger = init_logger(__name__)
 

@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pynvml
+import torch
 
 from vllm.logger import init_logger
 
@@ -169,6 +170,15 @@ def get_preselected_freq(gpu: str) -> list[int]:
         'A100-SXM4-80GB':
         [210, 345, 480, 615, 750, 870, 1005, 1140, 1275, 1410],
     }[gpu]
+
+
+def get_gpu_name():
+    if not torch.cuda.is_available():
+        raise RuntimeError('No GPU found')
+    ret = torch.cuda.get_device_name(0)
+    ret = ret.replace('NVIDIA ', '')
+    ret = ret.replace('Tesla ', '')
+    return ret
 
 
 if __name__ == '__main__':
