@@ -11,12 +11,13 @@ import msgspec
 import numpy as np
 from lightgbm import Booster
 
-from vllm.config import VllmConfig
+from vllm.config import ModelConfig, VllmConfig
 from vllm.engine.metrics_types import Stats
 from vllm.logger import init_logger
 from vllm.platforms.nvml_freq_modulator.nvml_freq_modulator import (
     NvmlFreqModulatorInterface)
-from vllm.platforms.nvml_utils import CSVWriter, get_gpu_name, nvml_set_freq
+from vllm.platforms.nvml_utils import (CSVWriter, get_gpu_name,
+                                       get_preselected_freq, nvml_set_freq)
 from vllm.utils import get_mp_context
 
 logger = init_logger(__name__)
@@ -562,19 +563,20 @@ class _MPNvmlFreqModulatorServer:
 
 if __name__ == '__main__':
     q: SimpleQueue = SimpleQueue()
-    s = _MPNvmlFreqModulatorServer(freq_choices=[
-        210,
-        360,
-        510,
-        675,
-        825,
-        975,
-        1125,
-        1275,
-        1440,
-        1590,
-        1740,
-    ],
+    vllm_config = VllmConfig()
+    vllm_config.model_config = ModelConfig(
+        model='meta-llama/Llama-3.1-8B-Instruct',
+        # Assign arbitrary values to remaining mandatory params
+        task='draft',
+        tokenizer='',
+        tokenizer_mode='auto',
+        trust_remote_code=False,
+        dtype='float32',
+        seed=0,
+    )
+    freq_choices = get_preselected_freq(get_gpu_name())
+    s = _MPNvmlFreqModulatorServer(freq_choices=freq_choices,
+                                   vllm_config=vllm_config,
                                    q=q,
                                    log_dir=Path('./logs'),
                                    optim_target='energy',
@@ -585,7 +587,7 @@ if __name__ == '__main__':
         running_queue_num_tokens_per_req=[1074],
         wait_queue_num_prefill_tokens_per_req=[2050, 789],
         wait_queue_num_processed_tokens_per_req=[0, 0],
-        wait_queue_waiting_time_per_req=[],
+        wait_queue_waiting_time_per_req=[0, 0],
         gpu_cache_usage_sys=0.1,
         num_precomputed_tokens_per_req_iter=[25],
     )
