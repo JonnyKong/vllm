@@ -97,28 +97,33 @@ class MLPRegressor(nn.Module):
         self.load_state_dict(torch.load(path))
 
 
-def main(batch_type: str,
+def main(gpu: str,
+         model: str,
          model_type: str,
          freq_to_keep: Optional[int] = None,
          enable_grid_search: bool = False,
          include_precomputed: bool = False):
     assert model_type in ['gdbt', 'mlp']
-    assert batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']
 
-    X, Y, freqs, power, features_df = load_data(batch_type, freq_to_keep,
+    for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+        X, Y, freqs, _, features_df = load_data(gpu, model, batch_type,
+                                                freq_to_keep,
                                                 include_precomputed)
-    print(f"Loaded {len(X)} samples.")
+        result_root = Path('latency_model') / f'{gpu}_{model}'
+        latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
+                      features_df, result_root)
 
-    Path('latency_model').mkdir(parents=True, exist_ok=True)
-    Path('power_model').mkdir(parents=True, exist_ok=True)
-    print(f"shape of featuers_df: {features_df.shape}")
-    latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
-                  features_df)
-    power_model(X, power, freqs, enable_grid_search)
+    X, Y, freqs, powers, features_df = load_data(gpu, model, 'all',
+                                                 freq_to_keep,
+                                                 include_precomputed)
+    result_root = Path('power_model') / f'{gpu}_{model}'
+    power_model(X, powers, freqs, enable_grid_search, result_root)
 
 
 def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
-                  featuers_df):
+                  featuers_df, result_root: Path):
+    result_root.mkdir(parents=True, exist_ok=True)
+
     model_name = f'latency_model_{batch_type}_{model_type}'
     if enable_grid_search:
         model_name += '_grid-search'
@@ -144,12 +149,12 @@ def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
             print('best params: ', grid_search.best_params_)
         else:
             model.fit(X_train, Y_train_log)
-        model.booster_.save_model(Path('latency_model') / f'{model_name}.txt')
+        model.booster_.save_model(result_root / f'{model_name}.txt')
     else:
         model = MLPRegressor(input_dim=len(X_train[0]))
         model.fit(X_train, Y_train_log,
                   Path('latency_model') / f'{model_name}_loss_curve.pdf')
-        model.save_model(Path('latency_model') / f'{model_name}.pt')
+        model.save_model(result_root / f'{model_name}.pt')
 
     y_preds = []
     # Predict on both training and testing set
@@ -184,15 +189,15 @@ def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
             })
         ])
 
-    featuers_df.to_csv(Path('latency_model') / f'features_{model_name}.csv',
-                       index=False)
+    featuers_df.to_csv(result_root / f'features_{model_name}.csv', index=False)
 
-    plot_pred_error_cdf(df_errors,
-                        Path('latency_model') / f'loss_cdf_{model_name}.pdf')
+    plot_pred_error_cdf(df_errors, result_root / f'loss_cdf_{model_name}.pdf')
 
 
-def power_model(X, Y, freqs, enable_grid_search):
-    model_name = f'power_model_{batch_type}'
+def power_model(X, Y, freqs, enable_grid_search, result_root: Path):
+    result_root.mkdir(parents=True, exist_ok=True)
+
+    model_name = 'power_model_all'
     if enable_grid_search:
         model_name += '_grid-search'
     X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
@@ -200,7 +205,7 @@ def power_model(X, Y, freqs, enable_grid_search):
 
     model = LGBMRegressor(random_state=0, n_jobs=1)
     model.fit(X_train, Y_train)
-    model.booster_.save_model(Path('power_model') / f'{model_name}.txt')
+    model.booster_.save_model(result_root / f'{model_name}.txt')
 
     # Predict on test set
     Y_pred = model.predict(X_test)
@@ -225,6 +230,13 @@ def power_model(X, Y, freqs, enable_grid_search):
         )
     print(
         f"Overall Mean Absolute Relative Error: {np.mean(abs_rel_error):.4f}")
+
+    # Plot error CDF
+    x, y = get_cdf_data(abs_rel_error)
+    fig, ax = plt.subplots(1, 1)
+    ax.plot(x, y)
+    fig.tight_layout()
+    plt.savefig(result_root / f'loss_cdf_{model_name}.pdf')
 
 
 def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
@@ -337,12 +349,12 @@ def compute_average_power(df_perf, df_power) -> float:
     return ret
 
 
-def load_data(batch_type: str, freq_to_keep: Optional[int],
-              include_precomputed: False):
+def load_data(gpu: str, model: str, batch_type: str,
+              freq_to_keep: Optional[int], include_precomputed: False):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
-    power = []
+    powers = []
     if include_precomputed:
         features_df = pd.DataFrame(columns=[
             'path', 'freq', 'prefill_batch_size', 'prefill_len_sum',
@@ -361,9 +373,8 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
     print('Loading data ...')
 
     samples = gen_from_trace(
-        log_dir_base=
-        "/export2/obasit/EnergyEfficientServing/logs/azure_conv/A40_Llama-3.1-8B-Instruct_batches",
-        num_freqs=11,
+        gpu,
+        model,
         skip_existing=False,
     )
     print(f"Total samples: {len(samples)}")
@@ -435,6 +446,12 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
             if freq_to_keep and feat[0] != freq_to_keep:
                 continue
 
+            # Compute power first, so on exception, X and Y are not appended,
+            # keeping them of the same length
+            power = compute_average_power(df_perf, df_power)
+            if np.isnan(power):
+                continue
+
             if (include_precomputed):
                 if batch_type == 'prefill-only':
                     X.append(feat[:8])
@@ -450,9 +467,9 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
                 else:
                     X.append(feat[:])
 
+            powers.append(power)
             freqs.append(feat[0])  # Store frequency value
             Y.append(latency)
-            power.append(compute_average_power(df_perf, df_power))
 
         except Exception:
             # print(f"Error processing {args.log_dir}: {e}")
@@ -461,7 +478,7 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
     print(f"Samples for {batch_type}: {len(X)}")
     print(f"Skipped {skipped} samples due to missing files or errors.")
     return np.array(X), np.array(Y), np.array(freqs), np.array(
-        power), features_df
+        powers), features_df
 
 
 def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
@@ -532,10 +549,11 @@ def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    # for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
-    for batch_type in ['all']:
-        for enable_grid_search in [False, True]:
-            main(batch_type,
-                 'gdbt',
-                 enable_grid_search=enable_grid_search,
-                 include_precomputed=True)
+    gpu_model_combos = [['T4', 'phi-2'], ['A40', 'Llama-3.1-8B-Instruct'],
+                        ['A100-SXM4-80GB', 'gemma-2-27b-it']]
+    for gpu, model in gpu_model_combos:
+        main(gpu,
+             model,
+             model_type='gdbt',
+             enable_grid_search=True,
+             include_precomputed=True)

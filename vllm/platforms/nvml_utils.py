@@ -162,6 +162,15 @@ class CSVWriter:
         self.file.close()
 
 
+def get_preselected_freq(gpu: str) -> list[int]:
+    return {
+        'T4': [300, 450, 585, 735, 870, 1020, 1155, 1305, 1440, 1590],
+        'A40': [210, 375, 555, 720, 885, 1065, 1230, 1395, 1575, 1740],
+        'A100-SXM4-80GB':
+        [210, 345, 480, 615, 750, 870, 1005, 1140, 1275, 1410],
+    }[gpu]
+
+
 if __name__ == '__main__':
     freqs = uniform_sample_sorted(nvml_get_available_freq(), 10)
     print(freqs)

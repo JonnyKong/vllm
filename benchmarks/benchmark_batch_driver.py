@@ -9,9 +9,11 @@ import pandas as pd
 import uvloop
 from benchmark_batch import BenchmarkBatchParam, benchmark_batch
 from benchmark_utils import get_gpu_name, get_result_root
+from paths import RESULT_ROOT
 
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.platforms.nvml_utils import (nvml_get_available_freq,
+from vllm.platforms.nvml_utils import (get_preselected_freq,
+                                       nvml_get_available_freq,
                                        uniform_sample_sorted)
 from vllm.utils import FlexibleArgumentParser
 
@@ -74,22 +76,22 @@ def gen_sarathi_args():
 
 
 def gen_from_trace(
-        num_freqs: int = 10,
-        skip_existing: bool = True,
-        log_dir_base:
-    str = "/export2/kong102/energy_efficient_serving_results/request_timing/2025-05-05_lat-model-profiling/A40_Llama-3.1-8B-Instruct",  # noqa
+    gpu: str,
+    model: str,
+    skip_existing: bool = True,
 ):
+    log_dir_base = (
+        RESULT_ROOT /
+        f'request_timing/2025-05-05_lat-model-profiling/{gpu}_{model}')
 
-    # Add new traces to the tail of this list, so that the log_dir of existing
-    # params don't change
+    # Batch shape traces are unchanged across GPU and models
     BATCH_SHAPE_TRACES: list[Path] = [
-        Path(
-            '/export2/kong102/energy_efficient_serving_results/request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps9_reqs20000_fixed1740/perf_metric_3321721.csv'
-        ),
-        Path(
-            '/export2/kong102/energy_efficient_serving_results/request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps5_reqs20000_fixed1740/perf_metric_3378238.csv'
-        ),
+        RESULT_ROOT /
+        'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps9_reqs20000_fixed1740/perf_metric_3321721.csv',
+        RESULT_ROOT /
+        'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps5_reqs20000_fixed1740/perf_metric_3378238.csv',
     ]
+
     max_counts: dict = {
         'prefill-only': 1000,
         'decode-only': 10000,
@@ -98,7 +100,7 @@ def gen_from_trace(
 
     counter = Counter()
     params = []
-    test_freqs = uniform_sample_sorted(nvml_get_available_freq(), num_freqs)
+    test_freqs = get_preselected_freq(gpu)
 
     for trace in BATCH_SHAPE_TRACES:
         df = pd.read_csv(trace)
@@ -195,15 +197,15 @@ def main(expr_fn: Callable, model: str):
     vllm_args = parser.parse_args(vllm_args.split())
 
     # Pass in a list instead of generator so tqdm prints progress
-    params = expr_fn()
+    params = expr_fn(get_gpu_name(), model)
 
     uvloop.run(benchmark_batch(vllm_args, params))
 
 
 if __name__ == '__main__':
     expr_fn = {
-        'idle-power': gen_benchmark_idle_power_args,
-        'sarathi-serve-sla': gen_sarathi_args,
+        # 'idle-power': gen_benchmark_idle_power_args,
+        # 'sarathi-serve-sla': gen_sarathi_args,
         'trace': gen_from_trace,
     }[sys.argv[1]]
     model = sys.argv[2]
