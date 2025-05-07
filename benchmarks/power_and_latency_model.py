@@ -105,18 +105,20 @@ def main(batch_type: str,
     assert model_type in ['gdbt', 'mlp']
     assert batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']
 
-    X, Y, freqs, power = load_data(batch_type, freq_to_keep,
-                                   include_precomputed)
+    X, Y, freqs, power, features_df = load_data(batch_type, freq_to_keep,
+                                                include_precomputed)
     print(f"Loaded {len(X)} samples.")
 
     Path('latency_model').mkdir(parents=True, exist_ok=True)
     Path('power_model').mkdir(parents=True, exist_ok=True)
-
-    latency_model(X, Y, freqs, model_type, enable_grid_search)
+    print(f"shape of featuers_df: {features_df.shape}")
+    latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
+                  features_df)
     power_model(X, power, freqs, enable_grid_search)
 
 
-def latency_model(X, Y, freqs, model_type, enable_grid_search):
+def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
+                  featuers_df):
     model_name = f'latency_model_{batch_type}_{model_type}'
     if enable_grid_search:
         model_name += '_grid-search'
@@ -129,9 +131,9 @@ def latency_model(X, Y, freqs, model_type, enable_grid_search):
         model = LGBMRegressor(objective='l2')
         if enable_grid_search:
             param_grid = {
-                'num_leaves': [31, 50, 100],
-                'learning_rate': [0.1, 0.01],
-                'n_estimators': [100, 400, 1600, 6400],
+                'num_leaves': [20, 31, 40],
+                'learning_rate': [0.5, 0.1, 0.05],
+                'n_estimators': [50, 100, 200, 400],
             }
             grid_search = GridSearchCV(model,
                                        param_grid,
@@ -149,19 +151,23 @@ def latency_model(X, Y, freqs, model_type, enable_grid_search):
                   Path('latency_model') / f'{model_name}_loss_curve.pdf')
         model.save_model(Path('latency_model') / f'{model_name}.pt')
 
+    y_preds = []
     # Predict on both training and testing set
     df_errors = pd.DataFrame()
+    featuers_df['Absolute Relative Error'] = -100
+    featuers_df['Relative Error'] = -100
+    featuers_df['Error'] = -100
     for split in ['train', 'test']:
         if split == 'train':
             X, Y, freqs = X_train, Y_train, freqs_train
         else:
             X, Y, freqs = X_test, Y_test, freqs_test
         print(f'split={split}, shape={X.shape}')
-
         Y_pred_log = model.predict(X)
         Y_pred = np.exp(Y_pred_log)
-
+        y_preds.append(Y_pred)
         # Compute absolute relative error
+
         abs_rel_error = np.abs((Y_pred - Y) / Y)
         rel_error = (Y_pred - Y) / Y
         error = Y_pred - Y
@@ -177,6 +183,9 @@ def latency_model(X, Y, freqs, model_type, enable_grid_search):
                 'Split': split,
             })
         ])
+
+    featuers_df.to_csv(Path('latency_model') / f'features_{model_name}.csv',
+                       index=False)
 
     plot_pred_error_cdf(df_errors,
                         Path('latency_model') / f'loss_cdf_{model_name}.pdf')
@@ -236,7 +245,7 @@ def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
 
     # For each freq on test set
     for ax, error_name in zip(axs[1], error_names):
-        for freq in [825, 975, 1125, 1275, 1440, 1590, 1740]:
+        for freq in [210, 360, 510, 825, 975, 1125, 1275, 1440, 1590, 1740]:
             df_errors_ = df_errors[(df_errors['Split'] == 'test')
                                    & (df_errors['Frequency'] == freq)]
             x, y = get_cdf_data(df_errors_[error_name])
@@ -334,32 +343,34 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
     Y = []
     freqs = []  # Store frequencies for grouping
     power = []
+    if include_precomputed:
+        features_df = pd.DataFrame(columns=[
+            'path', 'freq', 'prefill_batch_size', 'prefill_len_sum',
+            'prefill_len_std', 'prefill_len_max', 'computed_prefill_len_sum',
+            'computed_prefill_len_std', 'computed_prefill_len_max',
+            'decode_batch_size', 'decode_len_sum', 'decode_len_std',
+            'decode_len_max', 'latency'
+        ])
+    else:
+        features_df = pd.DataFrame(columns=[
+            'path', 'freq', 'prefill_batch_size', 'prefill_len_sum',
+            'prefill_len_std', 'prefill_len_max', 'decode_batch_size',
+            'decode_len_sum', 'decode_len_std', 'decode_len_max', 'latency'
+        ])
 
     print('Loading data ...')
 
-    slightly_under = gen_from_trace(
-        tp=1,
-        pp=1,
-        end_sample=20000,
-        batch_type=batch_type,
-        trace_dir=
-        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/samples/slightly_underloaded_qps/logs",
+    samples = gen_from_trace(
         log_dir_base=
-        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/batches/slightly_underloaded_qps"
+        "/export2/obasit/EnergyEfficientServing/logs/azure_conv/A40_Llama-3.1-8B-Instruct_batches",
+        num_freqs=11,
+        skip_existing=False,
     )
-    heavily_under = gen_from_trace(
-        tp=1,
-        pp=1,
-        end_sample=20000,
-        batch_type=batch_type,
-        trace_dir=
-        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/samples/heavily_underloaded_qps/logs",
-        log_dir_base=
-        "/export2/obasit/EnergyEfficientServing/energy_efficient_serving_results/azure_trace_sampling/batches/heavily_underloaded_qps"
-    )
+    print(f"Total samples: {len(samples)}")
     skipped = 0
-    samples = slightly_under + heavily_under
     for args in tqdm(samples):
+        if not (args.get_batch_type() == batch_type or batch_type == 'all'):
+            continue
         perf_path = Path(args.log_dir) / 'perf_metric.csv'
         if not perf_path.exists():
             # print(f"Skipping {args.log_dir}, missing required perf files.")
@@ -370,7 +381,6 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
             # print(f"Skipping {args.log_dir}, missing required power files.")
             skipped += 1
             continue
-        # print(f"Loading {args.log_dir} ...")
 
         try:
             feat = get_feat(args, include_precomputed)
@@ -378,6 +388,49 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
             df_power = pd.read_csv(power_path)
             latency = (df_perf['pp_rank_0_end'] -
                        df_perf['pp_rank_0_start']).mean()
+            if include_precomputed:
+                features_df = pd.concat([
+                    features_df,
+                    pd.DataFrame(
+                        {
+                            'path': args.log_dir,
+                            'freq': feat[0],
+                            'prefill_batch_size': feat[1],
+                            'prefill_len_sum': feat[2],
+                            'prefill_len_std': feat[3],
+                            'prefill_len_max': feat[4],
+                            'computed_prefill_len_sum': feat[5],
+                            'computed_prefill_len_std': feat[6],
+                            'computed_prefill_len_max': feat[7],
+                            'decode_batch_size': feat[8],
+                            'decode_len_sum': feat[9],
+                            'decode_len_std': feat[10],
+                            'decode_len_max': feat[11],
+                            'latency': latency
+                        },
+                        index=[0])
+                ],
+                                        ignore_index=True)
+            else:
+                features_df = pd.concat([
+                    features_df,
+                    pd.DataFrame(
+                        {
+                            'path': args.log_dir,
+                            'freq': feat[0],
+                            'prefill_batch_size': feat[1],
+                            'prefill_len_sum': feat[2],
+                            'prefill_len_std': feat[3],
+                            'prefill_len_max': feat[4],
+                            'decode_batch_size': feat[5],
+                            'decode_len_sum': feat[6],
+                            'decode_len_std': feat[7],
+                            'decode_len_max': feat[8],
+                            'latency': latency
+                        },
+                        index=[0])
+                ],
+                                        ignore_index=True)
 
             if freq_to_keep and feat[0] != freq_to_keep:
                 continue
@@ -407,7 +460,8 @@ def load_data(batch_type: str, freq_to_keep: Optional[int],
             continue
     print(f"Samples for {batch_type}: {len(X)}")
     print(f"Skipped {skipped} samples due to missing files or errors.")
-    return np.array(X), np.array(Y), np.array(freqs), np.array(power)
+    return np.array(X), np.array(Y), np.array(freqs), np.array(
+        power), features_df
 
 
 def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
@@ -478,10 +532,10 @@ def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
-        for enable_grid_search in [False]:
+    # for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+    for batch_type in ['all']:
+        for enable_grid_search in [False, True]:
             main(batch_type,
                  'gdbt',
                  enable_grid_search=enable_grid_search,
                  include_precomputed=True)
-        # main(batch_type, 'mlp')
