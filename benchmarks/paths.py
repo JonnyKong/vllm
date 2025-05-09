@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-import os
 from pathlib import Path
 
-if 'IS_GOOGLE_CLOUD' in os.environ:
-    RESULT_ROOT = Path('~/energy_efficient_serving_results').expanduser()
-else:
-    RESULT_ROOT = Path('/export2/kong102/energy_efficient_serving_results')
+result_root_candidates = [
+    Path('/export2/kong102/energy_efficient_serving_results'),
+    Path('~/energy_efficient_serving_results').expanduser(),
+]
+for c in result_root_candidates:
+    if c.exists():
+        RESULT_ROOT = c
+        break

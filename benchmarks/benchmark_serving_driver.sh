@@ -1,9 +1,10 @@
 #!/bin/bash
 
 PORT=8002
-RESULT_ROOT=/export2/kong102/energy_efficient_serving_results
+# RESULT_ROOT=/export2/kong102/energy_efficient_serving_results
+RESULT_ROOT=${HOME}/energy_efficient_serving_results
 
-GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n1 | awk '{print $NF}')
+GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n1 | sed 's/^NVIDIA //' | sed 's/^TESLA//' | sed 's/ /-/g')
 
 wait_for_server() {
     # wait for vllm server to start
@@ -29,6 +30,10 @@ get_additional_vllm_args() {
     elif [[ ${GPU} == "A100-SXM4-80GB" && ${MODEL_NAME_HF} == "google/gemma-2-27b-it" ]]; then
         # Model max len is 8192
         ADDITIONAL_VLLM_ARGS+=" --max-model-len 8192 --max-num-seqs 1024 --max-num-batched-tokens 1024"
+    elif [[ ${GPU} == "H100-80GB-HBM3" && ${MODEL_NAME_HF} == "google/gemma-2-27b-it" ]]; then
+        ADDITIONAL_VLLM_ARGS+=" --max-model-len 8192 --max-num-seqs 1024 --max-num-batched-tokens 1024"
+    elif [[ ${GPU} == "A100-SXM4-80GB" && ${MODEL_NAME_HF} == "meta-llama/Llama-3.1-70B-Instruct" ]]; then
+        ADDITIONAL_VLLM_ARGS+=" -tp 4 --max-model-len 8192 --max-num-seqs 1024 --max-num-batched-tokens 1024"
     else
         echo "GPU-model combo not found"
         exit 1
@@ -84,4 +89,18 @@ profile_batch_shapes() {
     done
 }
 
-profile_batch_shapes
+profile_borderline_qps() {
+    MODEL_NAME_HF=google/gemma-2-27b-it
+    FREQ=1980
+    NUM_PROMPTS=2000
+
+    MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
+    for qps in 6 8; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}.0_req-cnt20000.csv
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-05-05_borderline-qps-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+        run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
+    done
+}
+
+# profile_batch_shapes
+profile_borderline_qps

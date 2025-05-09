@@ -185,8 +185,13 @@ def main(expr_fn: Callable, model: str):
                       '--max-num-batched-tokens 1024 ')
     elif gpu_name == 'T4' and model == 'microsoft/phi-2':
         vllm_args += '--max-model-len 2048 --dtype=half '
-    elif gpu_name == 'A100-SXM4-80GB' and model == 'google/gemma-2-27b-it':
+    elif (gpu_name in ['A100-SXM4-80GB', 'H100-80GB-HBM3']
+          and model == 'google/gemma-2-27b-it'):
         vllm_args += ('--max-model-len 8192 --max-num-seqs 1024 '
+                      '--max-num-batched-tokens 1024 ')
+    elif (gpu_name == 'A100-SXM4-80GB'
+          and model == 'meta-llama/Llama-3.1-70B-Instruct'):
+        vllm_args += ('-tp 4 --max-model-len 8192 --max-num-seqs 1024 '
                       '--max-num-batched-tokens 1024 ')
     else:
         raise NotImplementedError(f'gpu: {gpu_name}, model: {model}')
