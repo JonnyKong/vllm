@@ -2,7 +2,7 @@
 import copy
 import time
 from dataclasses import dataclass
-from itertools import product
+from itertools import count, product
 from multiprocessing import Process, SimpleQueue
 from pathlib import Path
 from typing import Optional
@@ -75,6 +75,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
             vllm_config: VllmConfig,
             freq_choices: list[int],
             log_dir: Path,
+            mod_interval: int = 1,
             tbt_sla: float = 0.25,
             ttft_sla: float = 1.0,
             optim_target: str = 'power',  # 'energy' or 'power'factory
@@ -87,6 +88,7 @@ class MPNvmlFreqModulatorClient(NvmlFreqModulatorInterface):
                                                  freq_choices,
                                                  self.q,
                                                  log_dir=log_dir,
+                                                 mod_interval=mod_interval,
                                                  tbt_sla=tbt_sla,
                                                  ttft_sla=ttft_sla,
                                                  optim_target=optim_target)
@@ -128,6 +130,7 @@ class _MPNvmlFreqModulatorServer:
         q: SimpleQueue,
         log_dir: Path,
         optim_target: str,
+        mod_interval: int,
         tbt_sla: float,
         ttft_sla: float,
         future_window: int = 4,
@@ -139,6 +142,7 @@ class _MPNvmlFreqModulatorServer:
         self.log_dir = log_dir
 
         self.future_windows = future_window
+        self.mod_interval = mod_interval
         self.tbt_sla = tbt_sla
         self.ttft_sla = ttft_sla
         self.mem_util_ceiling = mem_util_ceiling
@@ -180,10 +184,12 @@ class _MPNvmlFreqModulatorServer:
         ],
                                filename=self.log_dir / 'freq_mod_log.csv')
 
-        while True:
+        for step_id in count():
             msg_encoded = self.q.get()
             if msg_encoded is None:
                 break
+            if step_id % self.mod_interval > 0:
+                continue
             msg: FreqModMsg = msgspec.msgpack.decode(msg_encoded,
                                                      type=FreqModMsg)
             logger.debug('freq_mod_msg: %s', msg)
@@ -195,11 +201,9 @@ class _MPNvmlFreqModulatorServer:
             # Smaller if not all requests are prefilled in `future_windows`
             assert len(prefill_cycles) <= num_waiting_reqs
 
-            selected_freq_id, pred_batch_lat, pred_overhead = (
+            selected_freq, pred_batch_lat, pred_overhead = (
                 self._get_next_freq_dp(msg, future_states, prefill_cycles))
-            if msg.gpu_cache_usage_sys < self.mem_util_ceiling:
-                selected_freq = self.freq_choices[selected_freq_id]
-            else:
+            if msg.gpu_cache_usage_sys >= self.mem_util_ceiling:
                 selected_freq = max(self.freq_choices)
 
             freq_mod_start = time.perf_counter()
@@ -311,14 +315,16 @@ class _MPNvmlFreqModulatorServer:
             else:
                 break
 
-        selected_freq = freq_choices_desc[selected_freq_ids[0]]
+        selected_freq = max([
+            freq_choices_desc[selected_freq_ids[i]]
+            for i in range(self.mod_interval)
+        ])
         predicted_overhead = self.get_cpu_overhead_us(
             future_states[0].num_decodes) / 1e6
         predicted_batch_lat = lat_mat_list[0][
             selected_freq_ids[0]] - predicted_overhead
 
-        return self.freq_choices.index(
-            selected_freq), predicted_batch_lat, predicted_overhead
+        return selected_freq, predicted_batch_lat, predicted_overhead
 
     def get_future_states(self, msg: FreqModMsg,
                           future_window: int) -> tuple[list, list]:
@@ -580,6 +586,7 @@ if __name__ == '__main__':
                                    q=q,
                                    log_dir=Path('./logs'),
                                    optim_target='energy',
+                                   mod_interval=1,
                                    tbt_sla=0.25,
                                    ttft_sla=1.0)
     msg = FreqModMsg(

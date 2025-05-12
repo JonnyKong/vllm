@@ -63,6 +63,7 @@ def nvml_freq_modulator_factory(config: VllmConfig,
             log_dir=Path(config.log_dir),
             tbt_sla=0.22,
             optim_target='power',
+            mod_interval=1,
         )
     else:
         raise NotImplementedError(
