@@ -202,7 +202,7 @@ def main(expr_fn: Callable, model: str):
     vllm_args = parser.parse_args(vllm_args.split())
 
     # Pass in a list instead of generator so tqdm prints progress
-    params = expr_fn(get_gpu_name(), model)
+    params = expr_fn(get_gpu_name(), model.split('/')[1])
 
     uvloop.run(benchmark_batch(vllm_args, params))
 

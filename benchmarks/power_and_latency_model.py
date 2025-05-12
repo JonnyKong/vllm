@@ -549,8 +549,13 @@ def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    gpu_model_combos = [['T4', 'phi-2'], ['A40', 'Llama-3.1-8B-Instruct'],
-                        ['A100-SXM4-80GB', 'gemma-2-27b-it']]
+    gpu_model_combos = [
+        ['T4', 'phi-2'],
+        ['A40', 'Llama-3.1-8B-Instruct'],
+        ['A100-SXM4-80GB', 'gemma-2-27b-it'],
+        ['H100-80GB-HBM3', 'gemma-2-27b-it'],
+        ['A100-SXM4-80GB', 'Llama-3.1-70B-Instruct'],
+    ]
     for gpu, model in gpu_model_combos:
         main(gpu,
              model,

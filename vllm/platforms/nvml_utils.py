@@ -4,6 +4,7 @@ import csv
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -114,9 +115,16 @@ def nvml_set_freq(freq):
                 'Cannot set GPU frequency while nvml_lock_freq is active!')
 
     handles = _get_gpu_handles()
-    for handle in handles:
+
+    def set_freq(handle):
         pynvml.nvmlDeviceSetGpuLockedClocks(handle, freq, freq)
-    logger.info('Set GPU freq to %d MHz.', freq)
+
+    with ThreadPoolExecutor(max_workers=len(handles)) as executor:
+        futures = [executor.submit(set_freq, handle) for handle in handles]
+        for future in as_completed(futures):
+            future.result()  # Will raise if any thread fails
+
+    logger.info('Set GPU freq to %d MHz for all devices.', freq)
 
 
 def _get_gpu_handles():
