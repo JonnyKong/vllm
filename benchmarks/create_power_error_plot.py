@@ -5,9 +5,6 @@ import numpy as np
 with open("power_error_data.json", "r") as f:
     power_errors = json.load(f)
 
-for label in power_errors.keys():
-    print(label)
-
 gpu_to_key = {
     "T4" : "T4 phi-2",
     "A40" : "A40 Llama-3.1-8B-Instruct",
