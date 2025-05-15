@@ -179,8 +179,8 @@ class _MPNvmlFreqModulatorServer:
 
         # Column `now` used as key column to join with `perf_metrics.csv`
         csv_writer = CSVWriter(col_names=[
-            'now', 'freq_mod_start', 'freq_mod_end', 'target_freq',
-            'batch_lat', 'cpu_overhead'
+            'now', 'mpc_start', 'freq_mod_start', 'freq_mod_end',
+            'target_freq', 'batch_lat', 'cpu_overhead'
         ],
                                filename=self.log_dir / 'freq_mod_log.csv')
 
@@ -190,6 +190,7 @@ class _MPNvmlFreqModulatorServer:
                 break
             if step_id % self.mod_interval > 0:
                 continue
+            mpc_start = time.perf_counter()
             msg: FreqModMsg = msgspec.msgpack.decode(msg_encoded,
                                                      type=FreqModMsg)
             logger.debug('freq_mod_msg: %s', msg)
@@ -211,6 +212,7 @@ class _MPNvmlFreqModulatorServer:
             freq_mod_end = time.perf_counter()
             csv_writer.add_row([
                 msg.now,
+                mpc_start,
                 freq_mod_start,
                 freq_mod_end,
                 selected_freq,
