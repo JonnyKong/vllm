@@ -82,8 +82,8 @@ profile_batch_shapes() {
     NUM_PROMPTS=20000
 
     MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
-    for qps in 9 5; do
-        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}.0_req-cnt20000.csv
+    for qps in 9.0 5.0; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}_req-cnt20000.csv
         LOG_DIR=${RESULT_ROOT}/request_timing/2025-05-05_batch-shape-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
         run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
     done
@@ -102,5 +102,19 @@ profile_borderline_qps() {
     done
 }
 
+profile_simuluate_autoscaling() {
+    MODEL_NAME_HF=meta-llama/Llama-3.1-8B-Instruct
+    FREQ=1740
+    NUM_PROMPTS=6000
+
+    MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
+    for qps in 9.0 9.7; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}_req-cnt20000_prob-subsampling.csv
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-05-13_simulate-autoscaling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+        run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
+    done
+}
+
 # profile_batch_shapes
-profile_borderline_qps
+# profile_borderline_qps
+profile_simuluate_autoscaling

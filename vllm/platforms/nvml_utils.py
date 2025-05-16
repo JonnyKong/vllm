@@ -170,7 +170,8 @@ class CSVWriter:
     def close(self):
         self.file.close()
 
-# Removed T4 freqs as their similar performance stops 
+
+# Removed T4 freqs as their similar performance stops
 # greedy MPC to stop looking at lower freqs
 # Removed boost freq for A100-TP4 (1410)
 # Removed boost freq for H100 (1410)

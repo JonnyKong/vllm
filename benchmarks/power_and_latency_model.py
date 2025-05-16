@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import json
 import numpy as np
 import pandas as pd
 import torch
@@ -106,21 +105,19 @@ def main(gpu: str,
          include_precomputed: bool = False):
     assert model_type in ['gdbt', 'mlp']
 
-    # for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
-    #     X, Y, freqs, _, features_df = load_data(gpu, model, batch_type,
-    #                                             freq_to_keep,
-    #                                             include_precomputed)
-    #     result_root = Path('latency_model') / f'{gpu}_{model}'
-    #     latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
-    #                   features_df, result_root)
+    for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
+        X, Y, freqs, _, features_df = load_data(gpu, model, batch_type,
+                                                freq_to_keep,
+                                                include_precomputed)
+        result_root = Path('latency_model') / f'{gpu}_{model}'
+        latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
+                      features_df, result_root)
 
     X, Y, freqs, powers, features_df = load_data(gpu, model, 'all',
                                                  freq_to_keep,
                                                  include_precomputed)
     result_root = Path('power_model') / f'{gpu}_{model}'
-    return get_power_errors(X, powers, freqs, enable_grid_search, result_root)
-    #power_model(X, powers, freqs, enable_grid_search, result_root)
-    
+    power_model(X, powers, freqs, enable_grid_search, result_root)
 
 
 def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
@@ -196,26 +193,6 @@ def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
 
     plot_pred_error_cdf(df_errors, result_root / f'loss_cdf_{model_name}.pdf')
 
-def get_power_errors(X, Y, freqs, enable_grid_search, result_root: Path):
-    result_root.mkdir(parents=True, exist_ok=True)
-
-    model_name = 'power_model_all'
-    if enable_grid_search:
-        model_name += '_grid-search'
-    X_train, X_test, Y_train, Y_test, freqs_train, freqs_test = \
-        train_test_split(X, Y, freqs, test_size=0.1, random_state=0)
-
-    model = LGBMRegressor(random_state=0, n_jobs=1)
-    model.fit(X_train, Y_train)
-    model.booster_.save_model(result_root / f'{model_name}.txt')
-
-    # Predict on test set
-    Y_pred = model.predict(X_test)
-
-    # Compute absolute relative error
-    abs_rel_error = np.abs((Y_test - Y_pred) / Y_test)
-
-    return abs_rel_error
 
 def power_model(X, Y, freqs, enable_grid_search, result_root: Path):
     result_root.mkdir(parents=True, exist_ok=True)
@@ -260,6 +237,9 @@ def power_model(X, Y, freqs, enable_grid_search, result_root: Path):
     ax.plot(x, y)
     fig.tight_layout()
     plt.savefig(result_root / f'loss_cdf_{model_name}.pdf')
+
+    # Save errors to a CSV for later plotting
+    df_errors.to_csv(result_root / 'power_errors.csv', index=False)
 
 
 def plot_pred_error_cdf(df_errors: pd.DataFrame, output_path: Path):
@@ -579,15 +559,9 @@ if __name__ == '__main__':
         ['H100-80GB-HBM3', 'gemma-2-27b-it'],
         ['A100-SXM4-80GB', 'Llama-3.1-70B-Instruct'],
     ]
-    loaded_data = {}
     for gpu, model in gpu_model_combos:
-        errors = main(gpu,
+        main(gpu,
              model,
              model_type='gdbt',
-             enable_grid_search=False,
+             enable_grid_search=True,
              include_precomputed=True)
-        loaded_data[gpu + ' ' + model] = errors.tolist()
-    
-    with open ("power_error_data.json", 'w') as file:
-        json.dump(loaded_data, file, indent=4)
-    
