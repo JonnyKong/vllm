@@ -353,7 +353,7 @@ def compute_average_power(df_perf, df_power) -> float:
 
 
 def load_data(gpu: str, model: str, batch_type: str,
-              freq_to_keep: Optional[int], include_precomputed: False):
+              freq_to_keep: Optional[int], include_precomputed: bool):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping

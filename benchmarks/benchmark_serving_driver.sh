@@ -1,8 +1,10 @@
 #!/bin/bash
 
 PORT=8002
-# RESULT_ROOT=/export2/kong102/energy_efficient_serving_results
-RESULT_ROOT=${HOME}/energy_efficient_serving_results
+RESULT_ROOT=/export2/kong102/energy_efficient_serving_results
+if [ ! -d $RESULT_ROOT ]; then
+    RESULT_ROOT=${HOME}/energy_efficient_serving_results
+fi
 
 GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -n1 | sed 's/^NVIDIA //' | sed 's/^TESLA//' | sed 's/ /-/g')
 
@@ -76,6 +78,19 @@ run() {
     nvidia-smi -i ${CUDA_VISIBLE_DEVICES} -rgc
 }
 
+profile_borderline_qps() {
+    MODEL_NAME_HF=google/gemma-2-27b-it
+    FREQ=1980
+    NUM_PROMPTS=2000
+
+    MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
+    for qps in 6 8; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}.0_req-cnt20000.csv
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-05-05_borderline-qps-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+        run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
+    done
+}
+
 profile_batch_shapes() {
     MODEL_NAME_HF=meta-llama/Llama-3.1-8B-Instruct
     FREQ=1740
@@ -89,15 +104,28 @@ profile_batch_shapes() {
     done
 }
 
-profile_borderline_qps() {
-    MODEL_NAME_HF=google/gemma-2-27b-it
-    FREQ=1980
-    NUM_PROMPTS=2000
+profile_borderline_qps_azure_conv() {
+    MODEL_NAME_HF=meta-llama/Llama-3.1-8B-Instruct
+    FREQ=1740
+    NUM_PROMPTS=1000
 
     MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
-    for qps in 6 8; do
-        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_code_sharegpt-ctx-len_qps${qps}.0_req-cnt20000.csv
-        LOG_DIR=${RESULT_ROOT}/request_timing/2025-05-05_borderline-qps-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+    for qps in 2.0 3.0 4.0; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_conv_qps${qps}_req-cnt20000.csv
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-07-31_borderline-qps-profiling-azure-conv/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+        run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
+    done
+}
+
+profile_batch_shapes_azure_conv() {
+    MODEL_NAME_HF=meta-llama/Llama-3.1-8B-Instruct
+    FREQ=1740
+    NUM_PROMPTS=8000
+
+    MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
+    for qps in 2.0 4.0; do
+        DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_conv_qps${qps}_req-cnt20000.csv
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-07-31_batch-shape-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
         run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
     done
 }
@@ -115,6 +143,8 @@ profile_simuluate_autoscaling() {
     done
 }
 
-# profile_batch_shapes
 # profile_borderline_qps
-profile_simuluate_autoscaling
+# profile_batch_shapes
+# profile_borderline_qps_azure_conv
+profile_batch_shapes_azure_conv
+# profile_simuluate_autoscaling
