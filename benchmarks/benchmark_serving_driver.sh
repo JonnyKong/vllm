@@ -110,7 +110,7 @@ profile_borderline_qps_azure_conv() {
     NUM_PROMPTS=1000
 
     MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
-    for qps in 2.0 3.0 4.0; do
+    for qps in 2.0 3.0 4.0 5.0; do
         DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_conv_qps${qps}_req-cnt20000.csv
         LOG_DIR=${RESULT_ROOT}/request_timing/2025-07-31_borderline-qps-profiling-azure-conv/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
         run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
@@ -125,7 +125,7 @@ profile_batch_shapes_azure_conv() {
     MODEL_NAME_SHORT="${MODEL_NAME_HF#*/}" # Strip the org or creator
     for qps in 2.0 4.0; do
         DATASET_PATH=${RESULT_ROOT}/datasets/processed/azure_2024_conv_qps${qps}_req-cnt20000.csv
-        LOG_DIR=${RESULT_ROOT}/request_timing/2025-07-31_batch-shape-profiling/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
+        LOG_DIR=${RESULT_ROOT}/request_timing/2025-07-31_batch-shape-profiling-azure-conv/${GPU}_${MODEL_NAME_SHORT}_qps${qps}_reqs${NUM_PROMPTS}_fixed${FREQ}
         run ${MODEL_NAME_HF} ${qps} ${FREQ} ${LOG_DIR} ${DATASET_PATH} ${NUM_PROMPTS}
     done
 }
@@ -145,6 +145,6 @@ profile_simuluate_autoscaling() {
 
 # profile_borderline_qps
 # profile_batch_shapes
-# profile_borderline_qps_azure_conv
-profile_batch_shapes_azure_conv
+profile_borderline_qps_azure_conv
+# profile_batch_shapes_azure_conv
 # profile_simuluate_autoscaling

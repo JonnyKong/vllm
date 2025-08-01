@@ -78,19 +78,34 @@ def gen_sarathi_args():
 def gen_from_trace(
     gpu: str,
     model: str,
-    skip_existing: bool = True,
+    skip_existing: bool,
+    trace_type: str,
 ):
-    log_dir_base = (
-        RESULT_ROOT /
-        f'request_timing/2025-05-05_lat-model-profiling/{gpu}_{model}')
 
     # Batch shape traces are unchanged across GPU and models
-    BATCH_SHAPE_TRACES: list[Path] = [
-        RESULT_ROOT /
-        'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps9_reqs20000_fixed1740/perf_metric_3321721.csv',
-        RESULT_ROOT /
-        'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps5_reqs20000_fixed1740/perf_metric_3378238.csv',
-    ]
+    if trace_type == 'sharegpt':
+        BATCH_SHAPE_TRACES: list[Path] = [
+            RESULT_ROOT /
+            'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps9_reqs20000_fixed1740/perf_metric_3321721.csv',
+            RESULT_ROOT /
+            'request_timing/2025-05-05_batch-shape-profiling/A40_Llama-3.1-8B-Instruct_qps5_reqs20000_fixed1740/perf_metric_3378238.csv',
+        ]
+        log_dir_base = (
+            RESULT_ROOT /
+            f'request_timing/2025-05-05_lat-model-profiling/{gpu}_{model}')
+    elif trace_type == 'azure_conv':
+        BATCH_SHAPE_TRACES: list[Path] = [
+            RESULT_ROOT /
+            'request_timing/2025-07-31_batch-shape-profiling-azure-conv/A40_Llama-3.1-8B-Instruct_qps4.0_reqs8000_fixed1740/perf_metric_3165045.csv',
+            RESULT_ROOT /
+            'request_timing/2025-07-31_batch-shape-profiling-azure-conv/A40_Llama-3.1-8B-Instruct_qps2.0_reqs8000_fixed1740/perf_metric_3055612.csv',
+        ]
+        log_dir_base = (
+            RESULT_ROOT /
+            f'request_timing/2025-07-31_lat-model-profiling-azure-conv/{gpu}_{model}'
+        )
+    else:
+        raise NotImplementedError()
 
     max_counts: dict = {
         'prefill-only': 1000,
@@ -170,7 +185,7 @@ def gen_from_trace(
     return params
 
 
-def main(expr_fn: Callable, model: str):
+def main(expr_fn: Callable, model: str, trace_type: str):
     vllm_args = (f"--model {model} "
                  "-tp 1 -pp 1 "
                  "--disable-async-output-proc "
@@ -202,7 +217,10 @@ def main(expr_fn: Callable, model: str):
     vllm_args = parser.parse_args(vllm_args.split())
 
     # Pass in a list instead of generator so tqdm prints progress
-    params = expr_fn(get_gpu_name(), model.split('/')[1])
+    params = expr_fn(get_gpu_name(),
+                     model.split('/')[1],
+                     skip_existing=True,
+                     trace_type=trace_type)
 
     uvloop.run(benchmark_batch(vllm_args, params))
 
@@ -214,4 +232,5 @@ if __name__ == '__main__':
         'trace': gen_from_trace,
     }[sys.argv[1]]
     model = sys.argv[2]
-    main(expr_fn, model)
+    trace_type = sys.argv[3]
+    main(expr_fn, model, trace_type)
