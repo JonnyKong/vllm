@@ -100,28 +100,35 @@ class MLPRegressor(nn.Module):
 def main(gpu: str,
          model: str,
          model_type: str,
-         freq_to_keep: Optional[int] = None,
-         enable_grid_search: bool = False,
-         include_precomputed: bool = False):
+         enable_grid_search: bool,
+         include_precomputed: bool,
+         trace_type: str,
+         freq_to_keep: Optional[int] = None):
     assert model_type in ['gdbt', 'mlp']
 
+    result_root = Path('latency_model') / f'{gpu}_{model}'
+    if trace_type == 'azure_conv':
+        result_root = Path(f'{str(result_root)}_azure-conf')
     for batch_type in ['prefill-only', 'decode-only', 'hybrid', 'all']:
         X, Y, freqs, _, features_df = load_data(gpu, model, batch_type,
                                                 freq_to_keep,
-                                                include_precomputed)
-        result_root = Path('latency_model') / f'{gpu}_{model}'
-        latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
-                      features_df, result_root)
+                                                include_precomputed,
+                                                trace_type)
+        train_latency_model(X, Y, freqs, batch_type, model_type,
+                            enable_grid_search, features_df, result_root)
 
     X, Y, freqs, powers, features_df = load_data(gpu, model, 'all',
                                                  freq_to_keep,
-                                                 include_precomputed)
+                                                 include_precomputed,
+                                                 trace_type)
     result_root = Path('power_model') / f'{gpu}_{model}'
-    power_model(X, powers, freqs, enable_grid_search, result_root)
+    if trace_type == 'azure_conv':
+        result_root = Path(f'{str(result_root)}_azure-conf')
+    train_power_model(X, powers, freqs, enable_grid_search, result_root)
 
 
-def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
-                  featuers_df, result_root: Path):
+def train_latency_model(X, Y, freqs, batch_type, model_type,
+                        enable_grid_search, featuers_df, result_root: Path):
     result_root.mkdir(parents=True, exist_ok=True)
 
     model_name = f'latency_model_{batch_type}_{model_type}'
@@ -194,7 +201,7 @@ def latency_model(X, Y, freqs, batch_type, model_type, enable_grid_search,
     plot_pred_error_cdf(df_errors, result_root / f'loss_cdf_{model_name}.pdf')
 
 
-def power_model(X, Y, freqs, enable_grid_search, result_root: Path):
+def train_power_model(X, Y, freqs, enable_grid_search, result_root: Path):
     result_root.mkdir(parents=True, exist_ok=True)
 
     model_name = 'power_model_all'
@@ -353,7 +360,8 @@ def compute_average_power(df_perf, df_power) -> float:
 
 
 def load_data(gpu: str, model: str, batch_type: str,
-              freq_to_keep: Optional[int], include_precomputed: bool):
+              freq_to_keep: Optional[int], include_precomputed: bool,
+              trace_type: str):
     X = []
     Y = []
     freqs = []  # Store frequencies for grouping
@@ -379,6 +387,7 @@ def load_data(gpu: str, model: str, batch_type: str,
         gpu,
         model,
         skip_existing=False,
+        trace_type=trace_type,
     )
     print(f"Total samples: {len(samples)}")
     skipped = 0
@@ -552,16 +561,18 @@ def get_feat(p: BenchmarkBatchParam, include_precomputed: False) -> np.ndarray:
 
 
 if __name__ == '__main__':
-    gpu_model_combos = [
-        ['T4', 'phi-2'],
-        ['A40', 'Llama-3.1-8B-Instruct'],
-        ['A100-SXM4-80GB', 'gemma-2-27b-it'],
-        ['H100-80GB-HBM3', 'gemma-2-27b-it'],
-        ['A100-SXM4-80GB', 'Llama-3.1-70B-Instruct'],
+    gpu_model_trace = [
+        # ['T4', 'phi-2', 'sharegpt'],
+        # ['A40', 'Llama-3.1-8B-Instruct', 'sharegpt'],
+        # ['A100-SXM4-80GB', 'gemma-2-27b-it', 'sharegpt'],
+        # ['H100-80GB-HBM3', 'gemma-2-27b-it', 'sharegpt'],
+        # ['A100-SXM4-80GB', 'Llama-3.1-70B-Instruct', 'sharegpt'],
+        ['A40', 'Llama-3.1-8B-Instruct', 'azure_conv'],
     ]
-    for gpu, model in gpu_model_combos:
+    for gpu, model, trace_type in gpu_model_trace:
         main(gpu,
              model,
              model_type='gdbt',
              enable_grid_search=True,
-             include_precomputed=True)
+             include_precomputed=True,
+             trace_type=trace_type)
